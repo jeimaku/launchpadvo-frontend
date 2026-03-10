@@ -1,26 +1,27 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
 
-// Admin Pages
+// CRM Pages
 import Dashboard from './pages/Admin/Dashboard';
-import Contracts from './pages/Admin/Contracts';
-
-// Client Pages
-import ClientDashboard from './pages/Client/ClientDashboard';
+import LPCVirtualOffice from './pages/Admin/LPCVirtualOffice';
+// We will create these three files next!
+// import LPCVirtualOffice from './pages/Admin/LPCVirtualOffice';
+// import LPOGVirtualOffice from './pages/Admin/LPOGVirtualOffice';
+// import Payments from './pages/Admin/Payments';
 
 function App() {
   return (
     <Router>
       <Routes>
-        {/* If the URL is just '/', show the Login page */}
         <Route path="/" element={<Login />} />
         
-        {/* Admin Routes */}
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/contracts" element={<Contracts />} />
+        
+        {/* Placeholder routes until we build the actual pages */}
+        <Route path="/lpc-virtual-office" element={<LPCVirtualOffice />} />
+        <Route path="/lpog-virtual-office" element={<div className="p-8 text-2xl font-bold">🌆 LPOG Virtual Office Coming Soon...</div>} />
+        <Route path="/payments" element={<div className="p-8 text-2xl font-bold">💳 Payments Coming Soon...</div>} />
 
-        {/* Client Dashboard Route */}
-        <Route path="/client-dashboard" element={<ClientDashboard />} />
       </Routes>
     </Router>
   );
