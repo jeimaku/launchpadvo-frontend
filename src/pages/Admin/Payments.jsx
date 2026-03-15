@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
 import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
+import myLogo from '../../assets/launchpad.png';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function Payments() {
   const [payments, setPayments] = useState([]);
@@ -14,10 +17,12 @@ export default function Payments() {
   const [filterMode, setFilterMode] = useState('All');
   const [confirmAction, setConfirmAction] = useState({ show: false, type: '', paymentId: null });
   
-  // State for the Overview Modal and Receipt Generation
+  // Modals
   const [viewModal, setViewModal] = useState({ show: false, payment: null });
-  const [receiptData, setReceiptData] = useState(null); // Holds data while the picture is snapped
-  const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
+  
+  // 📸 NEW: State for the Receipt Preview Modal
+  const [receiptPreview, setReceiptPreview] = useState({ show: false, data: null });
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const userRole = localStorage.getItem('userRole') || 'staff';
   const canVerify = ['admin', 'manager', 'supervisor'].includes(userRole);
@@ -56,12 +61,11 @@ export default function Payments() {
 
   useEffect(() => { fetchPayments(); fetchClients(); }, []);
 
-  // METRICS
+  // METRICS & FILTERS
   const totalPending = payments.filter(p => p.status === 'Pending').reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalVerified = payments.filter(p => p.status === 'Verified').reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalVoided = payments.filter(p => p.status === 'Voided').reduce((sum, p) => sum + Number(p.amount_paid), 0);
 
-  // FILTERS
   const uniqueModes = [...new Set(payments.map(p => p.mode_of_payment))].filter(Boolean);
   const filteredPayments = payments.filter(payment => {
     const matchesSearch = payment.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -71,38 +75,73 @@ export default function Payments() {
     return matchesSearch && matchesStatus && matchesMode;
   });
 
-// ==========================================
-  // 📸 SECURE IMAGE RECEIPT GENERATOR (Upgraded)
   // ==========================================
-  const handleDownloadReceipt = async (payment) => {
-    setIsGeneratingReceipt(true);
-    setReceiptData(payment); 
+  // 📸 DOWNLOAD LOGIC (PNG & SECURE PDF)
+  // ==========================================
+  
+  const captureReceiptImage = async () => {
+    const receiptElement = document.getElementById('secure-receipt-template');
+    if (!receiptElement) throw new Error("Receipt element not found");
+    
+    // Force capture of the ENTIRE scrollable height and width to prevent cut-offs
+    return await toPng(receiptElement, { 
+      cacheBust: true, 
+      backgroundColor: '#ffffff', 
+      pixelRatio: 2,
+      width: receiptElement.scrollWidth,
+      height: receiptElement.scrollHeight
+    });
+  };
 
-    // Give React 150ms to render the hidden UI
-    setTimeout(async () => {
+  const handleDownloadPNG = async () => {
+    setIsDownloading(true);
+    try {
+      const dataUrl = await captureReceiptImage();
+      const link = document.createElement('a');
+      link.download = `Launchpad_Receipt_${receiptPreview.data.official_receipt_number}.png`; // (or .pdf)
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      alert("Failed to generate image. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleDownloadSecurePDF = async () => {
+    setIsDownloading(true);
+    try {
+      const dataUrl = await captureReceiptImage();
       const receiptElement = document.getElementById('secure-receipt-template');
-      if (receiptElement) {
-        try {
-          // Use modern html-to-image library
-          const dataUrl = await toPng(receiptElement, { 
-            cacheBust: true, 
-            backgroundColor: '#ffffff',
-            pixelRatio: 2 // Keeps the image high resolution
-          });
-          
-          // Trigger the download
-          const link = document.createElement('a');
-          link.download = `Launchpad_Receipt_REC${payment.id.toString().padStart(5, '0')}.png`;
-          link.href = dataUrl;
-          link.click();
-        } catch (error) {
-          console.error("Error generating receipt image:", error);
-          alert("Failed to generate receipt. Please try again.");
-        }
-      }
-      setReceiptData(null); 
-      setIsGeneratingReceipt(false);
-    }, 150);
+      
+      // 1. Create a standard A4 sized PDF
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      // 2. Calculate proportions to fit the image beautifully on the A4 page
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = receiptElement.scrollWidth;
+      const imgHeight = receiptElement.scrollHeight;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      
+      const finalWidth = imgWidth * ratio;
+      const finalHeight = imgHeight * ratio;
+
+      // 3. Center the image horizontally
+      const marginX = (pdfWidth - finalWidth) / 2;
+
+      // 4. Embed the secure PNG into the PDF
+      pdf.addImage(dataUrl, 'PNG', marginX, 0, finalWidth, finalHeight);
+      pdf.save(`Launchpad_Receipt_REC${receiptPreview.data.id.toString().padStart(5, '0')}.pdf`);
+    } catch (error) {
+      alert("Failed to generate Secure PDF. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   // CRUD ACTIONS
@@ -285,12 +324,12 @@ export default function Payments() {
 
                           {payment.status === 'Verified' && (
                             <>
+                              {/* TRIGGER RECEIPT PREVIEW MODAL */}
                               <button 
-                                onClick={() => handleDownloadReceipt(payment)} 
-                                disabled={isGeneratingReceipt}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border text-green-700 bg-green-50 border-green-200 hover:bg-green-100 shadow-sm disabled:opacity-50 disabled:cursor-wait"
+                                onClick={() => setReceiptPreview({ show: true, data: payment })} 
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border text-green-700 bg-green-50 border-green-200 hover:bg-green-100 shadow-sm"
                               >
-                                <IconReceipt /> {isGeneratingReceipt ? 'Generating...' : 'Receipt'}
+                                <IconReceipt /> Receipt
                               </button>
                               {canVerify && (
                                 <button onClick={() => setConfirmAction({ show: true, type: 'VOID', paymentId: payment.id })} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100 shadow-sm">
@@ -312,123 +351,192 @@ export default function Payments() {
         </div>
       </div>
 
+
       {/* ========================================== */}
-      {/* 🖼️ THE HIDDEN RECEIPT HTML TEMPLATE        */}
+      {/* 🧾 NEW: THE RECEIPT PREVIEW & DOWNLOAD MODAL */}
       {/* ========================================== */}
-      {/* This div is pushed 9999px off the screen so the user never sees it, but html2canvas can snap a picture of it perfectly. */}
-      {receiptData && (
-        <div id="secure-receipt-template" className="fixed top-[9999px] left-[9999px] w-[850px] bg-white text-slate-900 font-sans p-12 box-border">
-          
-          {/* Top Brand Header */}
-          <div className="flex justify-between items-start border-b-[3px] border-slate-900 pb-6 mb-8">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[#d2f34c]">
-                <span className="text-3xl font-black text-slate-900">L</span>
+      {receiptPreview.show && receiptPreview.data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl flex flex-col max-h-[95vh] w-full max-w-[900px] overflow-hidden animate-fade-in">
+            
+            {/* Modal Header & Download Buttons */}
+            <div className="flex flex-col sm:flex-row justify-between items-center p-6 border-b border-slate-200 bg-slate-50">
+              <h2 className="text-xl font-bold text-slate-800 mb-4 sm:mb-0">Receipt Preview</h2>
+              <div className="flex gap-3 w-full sm:w-auto">
+                <button 
+                  onClick={() => setReceiptPreview({ show: false, data: null })} 
+                  className="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300 bg-white"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleDownloadPNG}
+                  disabled={isDownloading}
+                  className="flex-1 sm:flex-none px-4 py-2 text-sm font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {isDownloading ? 'Processing...' : 'Download Image'}
+                </button>
+                <button 
+                  onClick={handleDownloadSecurePDF}
+                  disabled={isDownloading}
+                  className="flex-1 sm:flex-none px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {isDownloading ? 'Processing...' : 'Download Secure PDF'}
+                </button>
               </div>
-              <div>
-                <h1 className="text-3xl font-black tracking-tight uppercase leading-none">Launchpad</h1>
-                <p className="text-lg font-bold text-slate-500 uppercase tracking-widest mt-1">Coworking</p>
-              </div>
             </div>
-            <div className="text-right">
-              <h2 className="text-4xl font-black text-slate-200 uppercase tracking-wider mb-2">Receipt</h2>
-              <p className="font-bold text-slate-600">No. <span className="text-slate-900 ml-1">REC-{receiptData.id.toString().padStart(5, '0')}</span></p>
-              <p className="text-sm font-semibold text-slate-500 mt-1">Date: <span className="text-slate-800 ml-1">{new Date(receiptData.payment_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span></p>
-            </div>
-          </div>
 
-          {/* 2-Column Details (Mimicking your sample) */}
-          <div className="grid grid-cols-2 gap-12 mb-10">
-            <div className="p-5 border border-slate-200 rounded-lg bg-slate-50">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Branch / Facility</p>
-              <p className="text-lg font-bold text-slate-800">{receiptData.branch === 'LPC' ? 'Commercenter Alabang' : receiptData.branch === 'LPOG' ? 'One Griffinstone' : 'Headquarters'}</p>
-              <p className="text-sm font-medium text-slate-500 mt-1">Virtual Office Registration</p>
-            </div>
-            <div className="p-5 border border-slate-200 rounded-lg">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Billed To</p>
-              <p className="text-xl font-bold text-slate-900 leading-tight">{receiptData.company_name}</p>
-              <p className="text-sm font-medium text-slate-500 mt-1">Authorized Representative</p>
-            </div>
-          </div>
+            {/* Scrollable Receipt Area (This is what html-to-image captures!) */}
+            <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200 flex justify-center custom-scrollbar">
+              
+              {/* THE EXACT RECEIPT TEMPLATE */}
+              {/* Added min-h-[1130px] to mimic A4 proportions, and flex flex-col to push footer down */}
+              <div id="secure-receipt-template" className="w-[800px] min-h-[1130px] shrink-0 bg-white text-black font-serif p-12 shadow-lg border border-slate-200 flex flex-col">
 
-          {/* Main Inclusions Table */}
-          <table className="w-full text-left mb-10 border-collapse">
-            <thead>
-              <tr className="border-b-2 border-slate-900">
-                <th className="py-3 px-2 text-sm font-bold text-slate-800 uppercase tracking-wider w-[40%]">Package Tier</th>
-                <th className="py-3 px-2 text-sm font-bold text-slate-800 uppercase tracking-wider w-[60%]">Status / Inclusions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-slate-200">
-                <td className="py-5 px-2 align-top">
-                  <p className="font-bold text-lg text-slate-900">Virtual Office</p>
-                  <p className="text-sm font-semibold text-[#8ca81b] bg-[#d2f34c]/20 inline-block px-2 py-0.5 rounded mt-2 uppercase">{receiptData.package_tier}</p>
-                </td>
-                <td className="py-5 px-2 align-top">
-                  {receiptData.package_tier === 'Use of Address' ? (
-                    <ul className="list-disc list-inside space-y-1 text-sm font-medium text-slate-700">
-                      <li>Use of address for Business Registration</li>
-                      {receiptData.branch === 'LPOG' && <li>Mail handling included</li>}
-                    </ul>
-                  ) : receiptData.package_tier.includes('Virtual Office Package') ? (
-                    <ul className="list-disc list-inside space-y-1 text-sm font-medium text-slate-700">
-                      <li>Use of address for Business Registration</li>
-                      <li>Mail handling</li>
-                      <li>10 days use of coworking desk per month</li>
-                      <li>Access during operating hours</li>
-                    </ul>
-                  ) : (
-                    <p className="text-sm font-medium text-slate-700">{receiptData.package_tier.replace('Custom: ', '')}</p>
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* Invoice Summary (Bottom Right block like the sample) */}
-          <div className="flex justify-end mb-12">
-            <div className="w-[400px] bg-slate-50 rounded-lg border border-slate-200 p-6 shadow-sm">
-              <h4 className="text-sm font-bold text-slate-800 uppercase tracking-widest border-b border-slate-300 pb-3 mb-4 text-center">Payment Summary</h4>
-              <div className="space-y-3 text-sm font-medium">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Mode of Payment</span>
-                  <span className="text-slate-800 font-bold">{receiptData.mode_of_payment}</span>
+              {/* ANTI-FORGERY WATERMARK */}
+                <div className="absolute inset-0 pointer-events-none opacity-[0.03] z-0" 
+                    style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><text x="0" y="100" font-family="sans-serif" font-size="24" font-weight="bold" fill="black" transform="rotate(-45 100 100)">LAUNCHPAD COWORKING</text></svg>')`, backgroundSize: '150px 150px' }}>
                 </div>
-                {receiptData.reference_number && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Reference No.</span>
-                    <span className="font-mono text-slate-800">{receiptData.reference_number}</span>
+
+                {/* Top Brand Header */}
+                <div className="flex justify-between items-start border-b-[3px] border-slate-900 pb-6 mb-8">
+                  <div className="flex items-center gap-4">
+                  <img src={myLogo} alt="Launchpad Logo" className="h-16 object-contain" />
+                  <div className="mt-1">
+                    {/* Applies the heavy Serif font and solid black color */}
+                    <h1 className="text-4xl font-serif font-black uppercase tracking-tight text-black leading-none">
+                      Launchpad
+                    </h1>
+                    {/* Applies the Sans-Serif font, custom slate-blue color, and wide spacing */}
+                    <p className="text-lg font-sans font-bold text-[#567189] uppercase tracking-[0.25em] mt-1">
+                      Coworking
+                    </p>
                   </div>
-                )}
-                <div className="flex justify-between items-center border-t border-slate-200 pt-3 mt-3">
-                  <span className="text-lg font-black text-slate-900">Total Paid</span>
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">{formatCurrency(receiptData.amount_paid)}</span>
+                  </div>
+                  <div className="text-right">
+                    <h2 className="text-4xl font-black text-slate-200 uppercase tracking-wider mb-2">Receipt</h2>
+                    <p className="font-bold text-slate-600">No. <span className="text-slate-900 ml-1">{receiptPreview.data.official_receipt_number}</span></p>
+                    <p className="text-sm font-semibold text-slate-500 mt-1">Date: <span className="text-slate-800 ml-1">{new Date(receiptPreview.data.payment_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span></p>
+                  </div>
                 </div>
+
+                {/* 2-Column Details */}
+                <div className="grid grid-cols-2 gap-12 mb-10">
+                  <div className="p-5 border border-slate-200 rounded-lg bg-slate-50">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Branch / Facility</p>
+                    <p className="text-lg font-bold text-slate-800">{receiptPreview.data.branch === 'LPC' ? 'Commercenter Alabang' : receiptPreview.data.branch === 'LPOG' ? 'One Griffinstone' : 'Headquarters'}</p>
+                    <p className="text-sm font-medium text-slate-500 mt-1">Virtual Office Registration</p>
+                  </div>
+                  <div className="p-5 border border-slate-200 rounded-lg">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Billed To</p>
+                    <p className="text-xl font-bold text-slate-900 leading-tight">{receiptPreview.data.company_name}</p>
+                    <p className="text-sm font-medium text-slate-500 mt-1">Authorized Representative</p>
+                  </div>
+                </div>
+
+                {/* Main Inclusions Table */}
+                <table className="w-full text-left mb-10 border-collapse">
+                  <thead>
+                    <tr className="border-b-2 border-slate-900">
+                      <th className="py-3 px-2 text-sm font-bold text-slate-800 uppercase tracking-wider w-[40%]">Package Tier</th>
+                      <th className="py-3 px-2 text-sm font-bold text-slate-800 uppercase tracking-wider w-[60%]">Status / Inclusions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-200">
+                      <td className="py-5 px-2 align-top">
+                        <p className="font-bold text-lg text-slate-900">Virtual Office</p>
+                        <p className="text-sm font-semibold text-[#8ca81b] bg-[#d2f34c]/20 inline-block px-2 py-0.5 rounded mt-2 uppercase">{receiptPreview.data.package_tier}</p>
+                      </td>
+                      <td className="py-5 px-2 align-top">
+                        {receiptPreview.data.package_tier === 'Use of Address' ? (
+                          <ul className="list-disc list-inside space-y-1 text-sm font-medium text-slate-700">
+                            <li>Use of address for Business Registration</li>
+                            {receiptPreview.data.branch === 'LPOG' && <li>Mail handling included</li>}
+                          </ul>
+                        ) : receiptPreview.data.package_tier.startsWith('Custom:') ? (
+                          <p className="text-sm font-medium text-slate-700">{receiptPreview.data.package_tier.replace('Custom: ', '')}</p>
+                        ) : (
+                          <ul className="list-disc list-inside space-y-1 text-sm font-medium text-slate-700">
+                            <li>10 days use of coworking desk per month</li>
+                            <li>Access during operating hours: Monday-Friday, 9:00 am - 7:00 pm; Sat 10:00 am-5:00 pm</li>
+                            <li>Receptionist during operating hours</li>
+                            <li>Air-conditioning, lighting, and furniture</li>
+                            <li>Unlimited coffee and filtered water</li>
+                            <li>High speed internet access</li>
+                            <li>Access to printer/ scanner/ photocopier (print 10 pages/day)</li>
+                            <li>Access to lounge and pantry</li>
+                            <li>Free 3-hour parking (P10.00 in every succeeding hour)</li>
+                            <li>Access to Launchpad-hosted events (i.e. Mission Mondays, Pitch Night)</li>
+                            <li>Use of address for Business Registration</li>
+                            <li>Mail handling</li>
+                            <li>Renewal every 12 months at a discounted price</li>
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Invoice Summary */}
+                <div className="flex justify-end mb-12">
+                  <div className="w-[400px] bg-slate-50 rounded-lg border border-slate-200 p-6 shadow-sm">
+                    <h4 className="text-sm font-bold text-slate-800 uppercase tracking-widest border-b border-slate-300 pb-3 mb-4 text-center">Payment Summary</h4>
+                    <div className="space-y-3 text-sm font-medium">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Mode of Payment</span>
+                        <span className="text-slate-800 font-bold">{receiptPreview.data.mode_of_payment}</span>
+                      </div>
+                      {receiptPreview.data.reference_number && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Reference No.</span>
+                          <span className="font-mono text-slate-800">{receiptPreview.data.reference_number}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center border-t border-slate-200 pt-3 mt-3">
+                        <span className="text-lg font-black text-slate-900">Total Paid</span>
+                        <span className="text-2xl font-black text-slate-900 tracking-tight">{formatCurrency(receiptPreview.data.amount_paid)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                  {/* Signatures / Audit Trail Footer + QR Code */}
+                  {/* Notice I changed grid-cols-2 to grid-cols-3 and added relative z-10 */}
+                  <div className="grid grid-cols-3 gap-8 text-sm mt-auto pt-8 border-t border-slate-200 relative z-10">
+                    <div>
+                      <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Received & Encoded By</p>
+                      <p className="text-slate-500 font-medium">{receiptPreview.data.recorded_by_name}</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Officially Verified By</p>
+                      <p className="text-slate-500 font-medium">{receiptPreview.data.verified_by_name || 'Management Team'}</p>
+                    </div>
+                    
+                    {/* THE OFFLINE SECURE QR CODE */}
+                    <div className="flex justify-end items-center">
+                      <QRCodeSVG 
+                        value={`LAUNCHPAD COWORKING\nReceipt: ${receiptPreview.data.official_receipt_number}\nBilled To: ${receiptPreview.data.company_name}\nAmount: PHP ${receiptPreview.data.amount_paid}\nDate: ${new Date(receiptPreview.data.payment_date).toLocaleDateString()}\nStatus: OFFICIAL`}
+                        size={80}
+                        level="M"
+                        includeMargin={true}
+                      />
+                    </div>
+                  </div>
+
+                <p className="text-center text-xs font-semibold text-slate-400 mt-16 tracking-widest uppercase">This is a system-generated, immutable official receipt.</p>
+
               </div>
             </div>
           </div>
-
-          {/* Signatures / Audit Trail Footer */}
-          <div className="grid grid-cols-2 gap-8 text-sm mt-16 pt-8 border-t border-slate-200">
-            <div>
-              <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Received & Encoded By</p>
-              <p className="text-slate-500 font-medium">{receiptData.recorded_by_name}</p>
-            </div>
-            <div>
-              <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Officially Verified By</p>
-              <p className="text-slate-500 font-medium">{receiptData.verified_by_name || 'Management Team'}</p>
-            </div>
-          </div>
-
-          <p className="text-center text-xs font-semibold text-slate-400 mt-16 tracking-widest uppercase">This is a system-generated, immutable official receipt snapshot.</p>
-
         </div>
       )}
 
-      {/* MODALS (Overview, Record, Action) go here... */}
-      {/* (Kept exactly identical to your previous version) */}
+
+      {/* THE OTHER MODALS KEEP EXACTLY THE SAME... */}
+      {/* ... (View Overview Modal, Record Payment Modal, Confirm Action Modal) ... */}
       
+      {/* OVERVIEW MODAL */}
       {viewModal.show && viewModal.payment && (() => {
         const payment = viewModal.payment;
         const client = clients.find(c => c.id === payment.virtual_office_id) || {};
@@ -507,6 +615,7 @@ export default function Payments() {
         );
       })()}
 
+      {/* RECORD PAYMENT MODAL */}
       {showRecordModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
@@ -579,6 +688,7 @@ export default function Payments() {
         </div>
       )}
 
+      {/* CONFIRMATION MODAL */}
       {confirmAction.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">

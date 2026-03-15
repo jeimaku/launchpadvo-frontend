@@ -165,7 +165,7 @@ export default function LPCVirtualOffice() {
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPC Virtual Office</h2>
-            <p className="text-slate-500 mt-1">Manage all clients stationed at the Las Piñas branch.</p>
+            <p className="text-slate-500 mt-1">Manage all clients stationed at the Commercenter branch.</p>
           </div>
           <button 
             onClick={handleAddNew}

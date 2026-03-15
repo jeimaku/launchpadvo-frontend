@@ -6,10 +6,7 @@ import Dashboard from './pages/Admin/Dashboard';
 import LPCVirtualOffice from './pages/Admin/LPCVirtualOffice';
 import LPOGVirtualOffice from './pages/Admin/LPOGVirtualOffice';
 import Payments from './pages/Admin/Payments';
-// We will create these three files next!
-// import LPCVirtualOffice from './pages/Admin/LPCVirtualOffice';
-// import LPOGVirtualOffice from './pages/Admin/LPOGVirtualOffice';
-// import Payments from './pages/Admin/Payments';
+import Users from './pages/Admin/Users';
 
 function App() {
   return (
@@ -23,7 +20,8 @@ function App() {
         <Route path="/lpc-virtual-office" element={<LPCVirtualOffice />} />
         <Route path="/lpog-virtual-office" element={<LPOGVirtualOffice />} />
         <Route path="/payments" element={<Payments />} />
-
+        <Route path="/users" element={<Users />} />
+        
       </Routes>
     </Router>
   );
