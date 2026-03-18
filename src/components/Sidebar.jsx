@@ -166,6 +166,22 @@ export default function Sidebar() {
             {showText && <span className="whitespace-nowrap">LPOG Virtual Office</span>}
           </Link>
 
+          {/* COMMUNICATIONS */}
+          {showText ? (
+            <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">Communications</p>
+          ) : (
+            <div className="w-full border-t border-slate-800 my-4"></div>
+          )}
+
+          <Link 
+            to="/email-center" 
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/email-center') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            title={!showText ? "Email Center" : ""}
+          >
+            <span className="text-lg flex-shrink-0">📧</span>
+            {showText && <span className="whitespace-nowrap">Email Center</span>}
+          </Link>
+
           {/* FINANCIALS */}
           {showText ? (
             <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">Financials</p>
