@@ -35,8 +35,9 @@ export default function EmailTemplates() {
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [showComposeModal, setShowComposeModal] = useState(false);
   
-  // Custom Delete Modal State
+  // Custom Modals State
   const [templateToDelete, setTemplateToDelete] = useState(null);
+  const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false }); 
   
   // State for the Form (Create/Edit)
   const [formData, setFormData] = useState({
@@ -128,6 +129,7 @@ export default function EmailTemplates() {
     setSavedTemplates(updatedTemplates);
     resetForm();
     setCurrentView('library');
+    setAlertPrompt({ isOpen: true, message: "Template saved successfully!", isError: false });
   };
 
   const confirmDelete = (id) => {
@@ -140,12 +142,12 @@ export default function EmailTemplates() {
       localStorage.setItem('email_templates', JSON.stringify(updated));
       setSavedTemplates(updated);
       setTemplateToDelete(null);
+      setAlertPrompt({ isOpen: true, message: "Template deleted.", isError: false });
     }
   };
 
   const allTemplates = [SYSTEM_TEMPLATE, ...savedTemplates];
 
-  // Function from your Modal to render distinct files in the preview
   const renderAttachmentPreview = (att, index) => {
     const isImage = att.type?.startsWith('image/');
     const isVideo = att.type?.startsWith('video/');
@@ -181,45 +183,28 @@ export default function EmailTemplates() {
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
+      
+      {/* GLOBAL MODAL ANIMATION STYLES */}
+      <style>{`
+        @keyframes modalPopIn {
+          0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+          100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .animate-modal-pop { animation: modalPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      `}</style>
+
       <Sidebar />
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
         
-        {/* Page Header */}
         <div className="mb-6 shrink-0">
           <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
           <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
         </div>
 
         <div className="flex gap-6 flex-1 min-h-0">
-          
-          {/* Reusable Sidebar Component */}
           <EmailSidebar onCompose={() => setShowComposeModal(true)} />
 
-          {/* Main Content Area */}
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden relative">
-            
-            {/* CUSTOM DELETE CONFIRMATION MODAL OVERLAY */}
-            {templateToDelete && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center transform scale-100 animate-scale-in">
-                  <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6">
-                    <span className="text-4xl">⚠️</span>
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Template?</h3>
-                  <p className="text-slate-500 font-medium mb-8">This action cannot be undone. You will permanently lose this template and its attachments.</p>
-                  <div className="flex gap-3 w-full">
-                    <button onClick={() => setTemplateToDelete(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl transition-colors">
-                      Cancel
-                    </button>
-                    <button onClick={executeDelete} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-500/30 transition-colors">
-                      Yes, Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Inner Header */}
             <div className="flex items-center justify-between border-b border-slate-100 p-8 bg-slate-50 shrink-0">
               <div>
                 <h3 className="text-3xl font-black text-slate-900 flex items-center gap-3">
@@ -427,8 +412,44 @@ export default function EmailTemplates() {
         </div>
       </main>
 
-      {/* Keep Compose Modal functionality accessible from Sidebar */}
-      {showComposeModal && <ComposeEmailModal onClose={() => setShowComposeModal(false)} onSendSuccess={(msg) => { alert(msg); setShowComposeModal(false); }} />}
+      {/* --- CUSTOM DIALOGS WITH POP-IN ANIMATION --- */}
+
+      {/* 1. Delete Template Confirmation Modal */}
+      {templateToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-modal-pop">
+            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6 text-red-500 text-4xl">⚠️</div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Template?</h3>
+            <p className="text-slate-600 font-medium mb-8">This action cannot be undone. You will permanently lose this template and its attachments.</p>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => setTemplateToDelete(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl transition-colors">
+                Cancel
+              </button>
+              <button onClick={executeDelete} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-600/30 transition-all">
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Success/Error Alert Modal */}
+      {alertPrompt.isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
+            <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 text-4xl ${alertPrompt.isError ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
+              {alertPrompt.isError ? '❌' : '✅'}
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">{alertPrompt.isError ? 'Error' : 'Success'}</h3>
+            <p className="text-slate-600 font-medium mb-8">{alertPrompt.message}</p>
+            <button onClick={() => setAlertPrompt({ isOpen: false, message: '', isError: false })} className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-lg shadow-[#d2f34c]/30 transition-all">
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showComposeModal && <ComposeEmailModal onClose={() => setShowComposeModal(false)} onSendSuccess={(msg) => { setAlertPrompt({ isOpen: true, message: msg, isError: false }); setShowComposeModal(false); }} />}
     </div>
   );
 }

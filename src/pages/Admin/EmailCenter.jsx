@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { io } from 'socket.io-client'; // <-- IMPORT SOCKET.IO CLIENT
+import { io } from 'socket.io-client';
 import Sidebar from '../../components/Sidebar'; 
 import EmailSidebar from '../../components/EmailSidebar'; 
 import launchpadLogo from '../../assets/launchpad-logo2.png';
@@ -19,11 +19,13 @@ export default function EmailCenter() {
   const [inboxEmails, setInboxEmails] = useState([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState(null); 
+  
+  // Custom Modals
   const [deletePrompt, setDeletePrompt] = useState({ isOpen: false, id: null, table: null });
+  const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false });
 
   const systemEmail = "lptest.renewal@gmail.com";
 
-  // Watch for state passed from EmailSidebar navigation
   useEffect(() => {
     if (location.state?.tab) {
       setActiveTab(location.state.tab);
@@ -54,31 +56,20 @@ export default function EmailCenter() {
     }
   };
 
-  // --- UPDATED: Fetch on load AND listen for real-time updates ---
   useEffect(() => {
-    // 1. Fetch emails immediately when the page loads
     fetchEmails();
-
-    // 2. Connect to the socket server
     const socket = io('http://localhost:5000');
-
-    // 3. Listen for the 'incoming_email' event
     socket.on('incoming_email', () => {
       const userRole = localStorage.getItem('userRole');
-      
-      // If the user is authorized, quietly re-fetch the emails in the background
       if (['admin', 'manager', 'staff'].includes(userRole)) {
-        console.log("New email detected! Auto-refreshing inbox...");
         fetchEmails(); 
       }
     });
 
-    // 4. Cleanup the socket connection when the user leaves the page
     return () => {
       socket.disconnect();
     };
   }, []);
-  // --------------------------------------------------------------
 
   const triggerDeletePrompt = (id, table, e) => {
     e.stopPropagation(); 
@@ -95,13 +86,18 @@ export default function EmailCenter() {
         method: 'PUT', 
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
+      
       if (response.ok) {
         fetchEmails(); 
         setDeletePrompt({ isOpen: false, id: null, table: null }); 
       } else {
-        alert("Failed to move email to trash.");
+        setAlertPrompt({ isOpen: true, message: "Failed to move email to trash.", isError: true });
+        setDeletePrompt({ isOpen: false, id: null, table: null });
       }
-    } catch (error) { console.error("Error:", error); }
+    } catch (error) { 
+      setAlertPrompt({ isOpen: true, message: "Network Error.", isError: true });
+      setDeletePrompt({ isOpen: false, id: null, table: null });
+    }
   };
 
   const manualLogs = emailLogs.filter(log => log.type === 'Manual');
@@ -152,6 +148,16 @@ export default function EmailCenter() {
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
+
+      {/* GLOBAL MODAL ANIMATION STYLES */}
+      <style>{`
+        @keyframes modalPopIn {
+          0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+          100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .animate-modal-pop { animation: modalPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      `}</style>
+
       <Sidebar />
 
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
@@ -162,7 +168,6 @@ export default function EmailCenter() {
 
         <div className="flex gap-6 flex-1 min-h-0">
           
-          {/* REUSABLE SIDEBAR COMPONENT */}
           <EmailSidebar 
             activeTab={activeTab} 
             onTabChange={setActiveTab} 
@@ -170,7 +175,6 @@ export default function EmailCenter() {
             counts={{ inbox: inboxEmails.length, manual: manualLogs.length, automated: automatedLogs.length }} 
           />
 
-          {/* EMAIL LIST CONTAINER */}
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
             <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
@@ -278,26 +282,55 @@ export default function EmailCenter() {
         </div>
       </main>
 
-      {/* MODALS */}
+      {/* --- CUSTOM DIALOGS WITH POP-IN ANIMATION --- */}
+
+      {/* 1. Soft Delete (Move to Trash) Modal */}
       {deletePrompt.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
             <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6 text-red-500 text-4xl">🗑️</div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">Move to Trash?</h3>
             <p className="text-slate-600 font-medium mb-8">You can restore it later from the Recently Deleted section.</p>
             <div className="flex gap-3">
-              <button onClick={() => setDeletePrompt({ isOpen: false, id: null, table: null })} className="flex-1 px-5 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors">Cancel</button>
-              <button onClick={executeSoftDelete} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30">Move to Trash</button>
+              <button onClick={() => setDeletePrompt({ isOpen: false, id: null, table: null })} className="flex-1 px-5 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={executeSoftDelete} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all">
+                Move to Trash
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* 2. Success/Error Alert Modal */}
+      {alertPrompt.isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
+            <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 text-4xl ${alertPrompt.isError ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
+              {alertPrompt.isError ? '❌' : '✅'}
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">{alertPrompt.isError ? 'Error' : 'Success'}</h3>
+            <p className="text-slate-600 font-medium mb-8">{alertPrompt.message}</p>
+            <button onClick={() => setAlertPrompt({ isOpen: false, message: '', isError: false })} className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-lg shadow-[#d2f34c]/30 transition-all">
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FIXED: The View Modal is now rendered cleanly without an extra wrapper! */}
       <EmailViewModal email={selectedEmail} onClose={() => setSelectedEmail(null)} formatExactDateTime={formatExactDateTime} systemEmail={systemEmail} />
+
       {showComposeModal && (
         <ComposeEmailModal 
           onClose={() => setShowComposeModal(false)} 
-          onSendSuccess={(msg) => { alert(msg); setShowComposeModal(false); setActiveTab('manual'); fetchEmails(); }} 
+          onSendSuccess={(msg) => { 
+            setAlertPrompt({ isOpen: true, message: msg, isError: false }); 
+            setShowComposeModal(false); 
+            setActiveTab('manual'); 
+            fetchEmails(); 
+          }} 
         />
       )}
     </div>

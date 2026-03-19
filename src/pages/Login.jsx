@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 // 1. IMPORT ALL ASSETS
-import lpLogo from '../assets/lplogo.png';
+import lpLogo from '../assets/launchpad.png';
 import slide1 from '../assets/lpc2.jpg';
 import slide2 from '../assets/lpc3.jpg';
 import slide3 from '../assets/lpc4.jpg';
