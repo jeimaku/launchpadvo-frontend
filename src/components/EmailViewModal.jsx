@@ -1,20 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import md5 from 'md5'; 
 import launchpadLogo from '../assets/launchpad-logo2.png'; 
 
 export default function EmailViewModal({ email, onClose, formatExactDateTime, systemEmail }) {
-  // State to manage local copy of email for delayed unmounting
   const [displayEmail, setDisplayEmail] = useState(email);
-  // State to trigger the closing animation before unmounting
   const [isClosing, setIsClosing] = useState(false);
 
-  // Sync props to local state to allow animation before the parent destroys the component
   useEffect(() => {
     if (email) {
       setDisplayEmail(email);
       setIsClosing(false);
     } else if (!email && displayEmail) {
-      // If parent sets email to null externally, trigger close animation ONCE
       setIsClosing(true);
       const timer = setTimeout(() => {
         setDisplayEmail(null);
@@ -24,14 +20,12 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
     }
   }, [email, displayEmail]);
 
-  // Cleanly notify the parent. The useEffect above will handle the animation.
   const handleClose = () => {
     onClose(); 
   };
 
   if (!displayEmail) return null;
 
-  // --- Force Download Function ---
   const forceDownload = async (url, filename) => {
     try {
       const response = await fetch(url);
@@ -54,7 +48,6 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
     }
   };
 
-  // --- SMART AVATAR HELPER 1: Get real picture or return 404 ---
   const getGravatarUrl = (emailAddress) => {
     if (emailAddress === systemEmail) return launchpadLogo;
     const cleanEmail = emailAddress.trim().toLowerCase();
@@ -62,14 +55,12 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
     return `https://www.gravatar.com/avatar/${hash}?s=128&d=404`;
   };
 
-  // --- SMART AVATAR HELPER 2: Generate the UI Fallback ---
   const getFallbackAvatar = (emailAddress, name) => {
     if (emailAddress === systemEmail) return launchpadLogo;
     const displayName = name && name !== emailAddress ? name : emailAddress.charAt(0).toUpperCase();
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&rounded=true&bold=true&size=128`;
   };
 
-  // --- Attachment Sorting ---
   const sortedAttachments = [...(displayEmail.attachments || [])].sort((a, b) => {
     const getWeight = (type, filename) => {
       if (type?.startsWith('image/')) return 1;
@@ -134,7 +125,6 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
   return (
     <>
       <style>{`
-        /* Clean Single-Pass Open & Close Animations */
         @keyframes modalEnter {
           0% { opacity: 0; transform: scale(0.95) translateY(15px); }
           100% { opacity: 1; transform: scale(1) translateY(0); }
@@ -155,26 +145,39 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
         .animate-modal-exit { animation: modalExit 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .animate-overlay-enter { animation: overlayEnter 0.3s ease-out forwards; }
         .animate-overlay-exit { animation: overlayExit 0.3s ease-out forwards; }
+        
+        /* Make scrollbar look clean */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f5f9; 
+          border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1; 
+          border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8; 
+        }
       `}</style>
       
-      {/* Background Overlay - Locked to Arial Font Globally */}
       <div 
         className={`fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-8 
           ${isClosing ? 'animate-overlay-exit' : 'animate-overlay-enter'}`} 
         style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
         
-        {/* Modal Window */}
-        <div className={`w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-full border border-slate-200/50 
+        {/* STRICT MODAL BOUNDARIES: max-h-[90vh] enforces the window size */}
+        <div className={`w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/50 
           ${isClosing ? 'animate-modal-exit' : 'animate-modal-enter'}`}>
           
-          {/* 1. Header: Subject & Date */}
+          {/* 1. Header: Subject & Date (shrink-0 prevents it from squishing) */}
           <div className="relative border-b border-slate-200 p-8 bg-white shrink-0 flex justify-between items-start gap-6">
             <div className="flex-1">
               <h3 className="text-3xl leading-tight">
-                {/* Indicator is normal font and black */}
                 <span className="font-normal text-black text-[11px] uppercase tracking-widest mr-3 block mb-2">Subject:</span>
-                {/* Content is bold and black */}
                 <span className="font-bold text-black">{displayEmail.subject}</span>
               </h3>
             </div>
@@ -188,7 +191,6 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
               </span>
             </div>
 
-            {/* Close Button */}
             <button 
               onClick={handleClose} 
               className="absolute top-8 right-8 text-slate-400 hover:text-white bg-slate-100 hover:bg-red-500 rounded-full h-10 w-10 flex items-center justify-center transition-colors"
@@ -198,7 +200,7 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
             </button>
           </div>
           
-          {/* 2. Sub-Header: Sender & Recipient Block */}
+          {/* 2. Sub-Header: Sender & Recipient Block (shrink-0) */}
           <div className="flex items-center gap-4 bg-slate-50/80 px-8 py-5 border-b border-slate-200 shrink-0">
             <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white overflow-hidden">
               {displayEmail.isIncoming ? (
@@ -253,26 +255,26 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
             </div>
           </div>
           
-          {/* 3. Scrollable Body Section */}
-          <div className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1 relative min-h-[250px]">
+          {/* 3. Scrollable Body Section - min-h-0 is the secret to forcing flexbox to scroll! */}
+          <div className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1 relative min-h-0">
             <div className="mb-4">
               <span className="font-normal text-black uppercase tracking-widest text-[11px]">E-mail Content:</span>
             </div>
             <div 
-              className="prose max-w-none text-black text-[15px] leading-relaxed" 
+              className="prose max-w-none text-black text-[15px] leading-relaxed pb-8" 
               dangerouslySetInnerHTML={{ __html: displayEmail.body }} 
               style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
             />
           </div>
 
-          {/* 4. Organized Attachments Tray */}
+          {/* 4. Organized Attachments Tray (shrink-0) */}
           {sortedAttachments.length > 0 && (
             <div className="border-t border-slate-200 bg-slate-50 p-8 shrink-0">
               <h4 className="text-[11px] font-normal text-black mb-4 uppercase tracking-widest flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                 {sortedAttachments.length} Attachment{sortedAttachments.length > 1 ? 's' : ''}
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[220px] overflow-y-auto custom-scrollbar pr-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[180px] overflow-y-auto custom-scrollbar pr-2">
                 {sortedAttachments.map((att, index) => renderAttachment(att, index))}
               </div>
             </div>

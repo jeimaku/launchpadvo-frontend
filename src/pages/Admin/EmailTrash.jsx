@@ -1,18 +1,50 @@
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client'; 
+import md5 from 'md5'; 
 import Sidebar from '../../components/Sidebar';
 import EmailSidebar from '../../components/EmailSidebar';
 import ComposeEmailModal from '../../components/ComposeEmailModal'; 
+import EmailViewModal from '../../components/EmailViewModal';
+import launchpadLogo from '../../assets/launchpad-logo2.png';
 
 export default function EmailTrash() {
   const [trashItems, setTrashItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [showComposeModal, setShowComposeModal] = useState(false);
+  
+  const [emailCounts, setEmailCounts] = useState({ inbox: 0, manual: 0, automated: 0 });
 
-  // --- Dialog States ---
   const [deletePrompt, setDeletePrompt] = useState({ isOpen: false, id: null, table: null });
-  const [restorePrompt, setRestorePrompt] = useState({ isOpen: false, id: null, table: null }); // <-- NEW
+  const [restorePrompt, setRestorePrompt] = useState({ isOpen: false, id: null, table: null });
   const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false });
+
+  const systemEmail = "lptest.renewal@gmail.com";
+
+  const fetchEmailCounts = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
+
+      const [logsResponse, inboxResponse] = await Promise.all([
+        fetch('http://localhost:5000/api/emails/logs', { headers }),
+        fetch('http://localhost:5000/api/emails/inbox', { headers })
+      ]);
+
+      if (logsResponse.ok && inboxResponse.ok) {
+        const logsData = await logsResponse.json();
+        const inboxData = await inboxResponse.json();
+        
+        setEmailCounts({
+          inbox: inboxData.length,
+          manual: logsData.filter(log => log.type === 'Manual').length,
+          automated: logsData.filter(log => log.type === 'Automated').length
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching email counts:', error);
+    }
+  };
 
   const fetchTrash = async () => {
     setLoading(true);
@@ -30,15 +62,25 @@ export default function EmailTrash() {
     }
   };
 
-  useEffect(() => { fetchTrash(); }, []);
+  useEffect(() => { 
+    fetchTrash(); 
+    fetchEmailCounts(); 
 
-  // --- NEW: Trigger Restore Prompt ---
+    const socket = io('http://localhost:5000');
+    socket.on('incoming_email', () => {
+      fetchEmailCounts();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   const triggerRestore = (id, table, e) => {
     e.stopPropagation();
     setRestorePrompt({ isOpen: true, id, table });
   };
 
-  // --- NEW: Execute Restore after confirmation ---
   const executeRestore = async () => {
     const { id, table } = restorePrompt;
     if (!id || !table) return;
@@ -59,6 +101,7 @@ export default function EmailTrash() {
       setRestorePrompt({ isOpen: false, id: null, table: null });
       setAlertPrompt({ isOpen: true, message: "Email successfully restored!", isError: false });
       fetchTrash(); 
+      fetchEmailCounts(); 
     } catch (err) { 
       setAlertPrompt({ isOpen: true, message: "Network Error: Could not restore email.", isError: true });
       setRestorePrompt({ isOpen: false, id: null, table: null });
@@ -99,11 +142,27 @@ export default function EmailTrash() {
   const getEmailSnippet = (htmlString) => {
     if (!htmlString) return '';
     let text = htmlString.replace(/<[^>]*>?/gm, ' ');
-    return text.replace(/\s+/g, ' ').trim().substring(0, 80) + '...';
+    return text.replace(/\s+/g, ' ').trim().substring(0, 120) + '...';
+  };
+
+  const formatExactDateTime = (dateString) => {
+    const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+    return new Date(dateString).toLocaleString('en-US', options);
+  };
+
+  const getGravatarUrl = (email) => {
+    if (email === systemEmail) return launchpadLogo;
+    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=404`;
+  };
+
+  const getFallbackAvatar = (email, name) => {
+    if (email === systemEmail) return launchpadLogo;
+    const displayName = name && name !== email ? name : email.charAt(0).toUpperCase();
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&rounded=true&bold=true&size=128`;
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden">
+    <div className="flex h-screen bg-slate-100 overflow-hidden" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
       
       {/* GLOBAL MODAL ANIMATION STYLES */}
       <style>{`
@@ -118,12 +177,12 @@ export default function EmailTrash() {
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
         
         <div className="mb-6 shrink-0">
-          <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
-          <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight">Email Center</h1>
+          <p className="text-lg text-slate-500 mt-1 font-normal">Manage automated notifications and manual communications.</p>
         </div>
 
         <div className="flex gap-6 flex-1 min-h-0">
-          <EmailSidebar onCompose={() => setShowComposeModal(true)} />
+          <EmailSidebar onCompose={() => setShowComposeModal(true)} counts={emailCounts} />
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
             <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 shrink-0">
@@ -132,91 +191,103 @@ export default function EmailTrash() {
               </h2>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 custom-scrollbar">
               {trashItems.length === 0 && !loading ? (
                 <div className="p-16 flex flex-col items-center justify-center text-center">
-                  <div className="bg-slate-50 p-6 rounded-full mb-4 text-6xl">🗑️</div>
+                  <div className="bg-slate-100 p-6 rounded-full mb-4 text-6xl shadow-inner">🗑️</div>
                   <h3 className="text-2xl font-black text-slate-700">Trash is Empty</h3>
-                  <p className="text-slate-500 font-medium mt-1 text-lg">No deleted emails found.</p>
+                  <p className="text-slate-500 font-normal mt-1 text-base">No deleted emails found.</p>
                 </div>
               ) : (
-                trashItems.map((item) => (
-                  <div key={`${item.source}-${item.id}`} onClick={() => setSelectedEmail(item)} className="flex items-start gap-6 p-6 border border-slate-100 rounded-3xl hover:bg-slate-50 hover:border-red-200 transition-all duration-200 cursor-pointer group shadow-sm hover:shadow-md">
-                    <div className="flex flex-col flex-1 min-w-0">
-                       <div className="flex justify-between items-start mb-2">
-                        <span className={`px-4 py-1.5 text-xs font-bold uppercase tracking-widest rounded-xl border ${
-                          item.source === 'logs' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}>
-                          {item.source === 'logs' ? 'Sent Mail' : 'Inbox'}
-                        </span>
-                        <span className="text-sm font-bold text-slate-400">
-                          Deleted on {new Date(item.deleted_at).toLocaleString([], { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                <div className="space-y-4">
+                  {trashItems.map((item) => (
+                    <div 
+                      key={`${item.source}-${item.id}`} 
+                      onClick={() => setSelectedEmail({ ...item, isIncoming: item.source === 'inbox' })} 
+                      className="flex items-start gap-6 p-6 border border-slate-200 rounded-3xl bg-white hover:border-slate-300 hover:shadow-md transition-all duration-300 cursor-pointer group"
+                    >
+                      {/* Avatar Section - Exact match to Inbox */}
+                      {item.source === 'logs' ? (
+                        <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white p-1 mt-1">
+                          <img src={getGravatarUrl(systemEmail)} onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(systemEmail, 'Launchpad'); }} alt="System" className="h-full w-full object-contain rounded-full" />
+                        </div>
+                      ) : (
+                        <img 
+                          src={getGravatarUrl(item.sender)} 
+                          onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(item.sender, item.sender); }}
+                          alt="Avatar" 
+                          className="h-14 w-14 rounded-full object-cover shadow-sm border border-slate-200 shrink-0 mt-1" 
+                        />
+                      )}
+
+                      {/* Content Section */}
+                      <div className="flex flex-col flex-1 min-w-0">
+                         <div className="flex justify-between items-start mb-1">
+                          <h4 className="font-bold text-slate-900 text-xl flex items-center gap-3 truncate">
+                            <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-lg border shrink-0 ${
+                              item.source === 'logs' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-blue-50 text-blue-600 border-blue-200'
+                            }`}>
+                              {item.source === 'logs' ? 'Sent Mail' : 'Inbox'}
+                            </span>
+                            {item.source === 'logs' ? (
+                              <>
+                                <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mr-1">Sent To:</span>
+                                <span className="truncate">{item.recipient}</span>
+                              </>
+                            ) : (
+                              <span className="truncate">{item.sender}</span>
+                            )}
+                          </h4>
+                          <span className="text-sm font-bold text-slate-400 whitespace-nowrap ml-4 mt-1">
+                            Deleted {formatExactDateTime(item.deleted_at)}
+                          </span>
+                        </div>
+                        <h5 className="font-bold text-slate-800 text-lg mb-2">{item.subject}</h5>
+                        <p className="text-slate-600 text-base leading-relaxed line-clamp-2">{getEmailSnippet(item.body)}</p>
                       </div>
-                      <h4 className="font-black text-slate-900 text-xl mb-1">{item.subject}</h4>
-                      <p className="text-slate-600 text-base leading-relaxed line-clamp-2">{getEmailSnippet(item.body)}</p>
                       
-                      <div className="mt-4 flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => triggerRestore(item.id, item.source, e)} className="px-5 py-2.5 bg-[#d2f34c] text-slate-900 rounded-xl font-bold shadow-sm hover:bg-[#b8d839] hover:-translate-y-0.5 transition-all flex items-center gap-2">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                      {/* Always-Visible Minimized Action Buttons */}
+                      <div className="flex flex-col gap-2.5 shrink-0 ml-4 pl-6 border-l border-slate-100 justify-center min-h-[80px]">
+                        <button 
+                          onClick={(e) => triggerRestore(item.id, item.source, e)} 
+                          className="w-full px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-emerald-500 hover:text-white hover:border-emerald-600 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 shadow-sm"
+                          title="Restore Email"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
                           Restore
                         </button>
-                        <button onClick={(e) => triggerPermanentDelete(item.id, item.source, e)} className="px-5 py-2.5 bg-red-100 text-red-700 rounded-xl font-bold shadow-sm hover:bg-red-200 hover:-translate-y-0.5 transition-all flex items-center gap-2">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          Delete Forever
+                        <button 
+                          onClick={(e) => triggerPermanentDelete(item.id, item.source, e)} 
+                          className="w-full px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-rose-500 hover:text-white hover:border-rose-600 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 shadow-sm"
+                          title="Delete Permanently"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          Delete
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>
         </div>
       </main>
 
-      {/* --- Email Preview Modal --- */}
-      {selectedEmail && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[90] p-4">
-          <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-modal-pop">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-              <div className="flex-1 pr-6">
-                <h2 className="text-3xl font-black text-slate-900 leading-tight mb-4">{selectedEmail.subject}</h2>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-base font-medium text-slate-600 space-y-2">
-                  <div className="flex"><span className="w-20 text-slate-400 font-bold">From:</span> <span className="text-slate-900">{selectedEmail.sender || 'Unknown'}</span></div>
-                  <div className="flex"><span className="w-20 text-slate-400 font-bold">To:</span> <span className="text-slate-900">{selectedEmail.recipient || 'Unknown'}</span></div>
-                  <div className="flex"><span className="w-20 text-slate-400 font-bold">Date:</span> <span className="text-slate-900">{new Date(selectedEmail.created_at).toLocaleString()}</span></div>
-                </div>
-              </div>
-              <button onClick={() => setSelectedEmail(null)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-200 rounded-full transition-colors bg-white border border-slate-200 shadow-sm">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-              </button>
-            </div>
-            <div className="p-8 overflow-y-auto flex-1 bg-white">
-              {selectedEmail.body ? (
-                <div className="prose prose-slate prose-lg max-w-none prose-a:text-[#b8d839]" dangerouslySetInnerHTML={{ __html: selectedEmail.body }} />
-              ) : (
-                <p className="text-slate-400 italic text-lg">No content available.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* --- CUSTOM DIALOGS --- */}
 
       {/* 1. Restore Confirmation Modal */}
       {restorePrompt.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
-            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-emerald-100 mb-6 text-emerald-500 text-4xl">♻️</div>
+            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-emerald-100 mb-6 text-emerald-500 text-4xl shadow-inner">♻️</div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">Restore Email?</h3>
-            <p className="text-slate-600 font-medium mb-8">This email will be moved back to its original folder and will no longer be in the trash.</p>
+            <p className="text-slate-600 font-normal text-base mb-8">This email will be moved back to its original folder and will no longer be in the trash.</p>
             <div className="flex gap-3">
               <button onClick={() => setRestorePrompt({ isOpen: false, id: null, table: null })} className="flex-1 px-5 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors">
                 Cancel
               </button>
-              <button onClick={executeRestore} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/30 transition-all">
+              <button onClick={executeRestore} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]">
                 Yes, Restore
               </button>
             </div>
@@ -226,16 +297,16 @@ export default function EmailTrash() {
 
       {/* 2. Permanent Delete Warning Modal */}
       {deletePrompt.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
-            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6 text-red-500 text-4xl">⚠️</div>
+            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-rose-100 mb-6 text-rose-500 text-4xl shadow-inner">⚠️</div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Permanently?</h3>
-            <p className="text-slate-600 font-medium mb-8">This action cannot be undone. This email will be permanently removed from the server.</p>
+            <p className="text-slate-600 font-normal text-base mb-8">This action cannot be undone. This email will be permanently removed from the server.</p>
             <div className="flex gap-3">
               <button onClick={() => setDeletePrompt({ isOpen: false, id: null, table: null })} className="flex-1 px-5 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors">
                 Cancel
               </button>
-              <button onClick={executePermanentDelete} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all">
+              <button onClick={executePermanentDelete} className="flex-1 px-5 py-3 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-lg shadow-rose-600/30 transition-all hover:scale-[1.02]">
                 Delete Forever
               </button>
             </div>
@@ -245,21 +316,38 @@ export default function EmailTrash() {
 
       {/* 3. Success/Error Alert Modal */}
       {alertPrompt.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
-            <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 text-4xl ${alertPrompt.isError ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
+            <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 text-4xl shadow-inner ${alertPrompt.isError ? 'bg-rose-100 text-rose-500' : 'bg-emerald-100 text-emerald-500'}`}>
               {alertPrompt.isError ? '❌' : '✅'}
             </div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">{alertPrompt.isError ? 'Error' : 'Success'}</h3>
-            <p className="text-slate-600 font-medium mb-8">{alertPrompt.message}</p>
-            <button onClick={() => setAlertPrompt({ isOpen: false, message: '', isError: false })} className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-lg shadow-[#d2f34c]/30 transition-all">
+            <p className="text-slate-600 font-normal text-base mb-8">{alertPrompt.message}</p>
+            <button onClick={() => setAlertPrompt({ isOpen: false, message: '', isError: false })} className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-lg shadow-[#d2f34c]/30 transition-all hover:scale-[1.02]">
               Got it
             </button>
           </div>
         </div>
       )}
 
-      {showComposeModal && <ComposeEmailModal onClose={() => setShowComposeModal(false)} onSendSuccess={(msg) => { setAlertPrompt({ isOpen: true, message: msg, isError: false }); setShowComposeModal(false); }} />}
+      {/* View Email Modal */}
+      <EmailViewModal 
+        email={selectedEmail} 
+        onClose={() => setSelectedEmail(null)} 
+        formatExactDateTime={formatExactDateTime} 
+        systemEmail={systemEmail} 
+      />
+
+      {showComposeModal && (
+        <ComposeEmailModal 
+          onClose={() => setShowComposeModal(false)} 
+          onSendSuccess={(msg) => { 
+            setAlertPrompt({ isOpen: true, message: msg, isError: false }); 
+            setShowComposeModal(false); 
+            fetchEmailCounts(); 
+          }} 
+        />
+      )}
     </div>
   );
 }
