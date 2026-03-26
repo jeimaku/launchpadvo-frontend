@@ -6,6 +6,9 @@ import ComposeEmailModal from '../../components/ComposeEmailModal';
 import NotificationBell from '../../components/NotificationBell'; 
 import launchpadLogo from '../../assets/launchpad-logo.png'; 
 
+// Dynamic API URL for Local Network Access
+const API_URL = `http://${window.location.hostname}:5000`;
+
 // System Default Template
 const SYSTEM_TEMPLATE = {
   id: 'system-automated-renewal',
@@ -63,8 +66,8 @@ export default function EmailTemplates() {
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
       const [logsResponse, inboxResponse] = await Promise.all([
-        fetch('http://localhost:5000/api/emails/logs', { headers }),
-        fetch('http://localhost:5000/api/emails/inbox', { headers })
+        fetch(`${API_URL}/api/emails/logs`, { headers }),
+        fetch(`${API_URL}/api/emails/inbox`, { headers })
       ]);
 
       if (logsResponse.ok && inboxResponse.ok) {
@@ -88,7 +91,7 @@ export default function EmailTemplates() {
     
     fetchEmailCounts(); 
 
-    const socket = io('http://localhost:5000');
+    const socket = io(API_URL);
     socket.on('incoming_email', () => {
       fetchEmailCounts();
     });
@@ -227,7 +230,7 @@ export default function EmailTemplates() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
       
       <style>{`
         @keyframes modalPopIn {

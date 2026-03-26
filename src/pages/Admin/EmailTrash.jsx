@@ -8,6 +8,9 @@ import NotificationBell from '../../components/NotificationBell';
 import EmailViewModal from '../../components/EmailViewModal';
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 
+// Dynamic API URL for Local Network Access
+const API_URL = `http://${window.location.hostname}:5000`;
+
 export default function EmailTrash() {
   const [trashItems, setTrashItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,8 +34,8 @@ export default function EmailTrash() {
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
       const [logsResponse, inboxResponse] = await Promise.all([
-        fetch('http://localhost:5000/api/emails/logs', { headers }),
-        fetch('http://localhost:5000/api/emails/inbox', { headers })
+        fetch(`${API_URL}/api/emails/logs`, { headers }),
+        fetch(`${API_URL}/api/emails/inbox`, { headers })
       ]);
 
       if (logsResponse.ok && inboxResponse.ok) {
@@ -54,7 +57,7 @@ export default function EmailTrash() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/emails/trash', {
+      const response = await fetch(`${API_URL}/api/emails/trash`, {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
       const data = await response.json();
@@ -70,7 +73,7 @@ export default function EmailTrash() {
     fetchTrash(); 
     fetchEmailCounts(); 
 
-    const socket = io('http://localhost:5000');
+    const socket = io(API_URL);
     socket.on('incoming_email', () => {
       fetchEmailCounts();
     });
@@ -90,7 +93,7 @@ export default function EmailTrash() {
     if (!id || !table) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/emails/restore/${id}?table=${table}`, { 
+      const response = await fetch(`${API_URL}/api/emails/restore/${id}?table=${table}`, { 
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
@@ -122,7 +125,7 @@ export default function EmailTrash() {
     if (!id || !table) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/emails/permanent/${id}?table=${table}`, { 
+      const response = await fetch(`${API_URL}/api/emails/permanent/${id}?table=${table}`, { 
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
@@ -208,7 +211,6 @@ export default function EmailTrash() {
                 trashItems.map((item) => (
                   <div 
                     key={`${item.source}-${item.id}`} 
-                    // EXACT DATA MAPPING FIX: Ensuring properties match what the modal expects
                     onClick={() => setSelectedEmail({ 
                       ...item, 
                       isIncoming: item.source === 'inbox',
