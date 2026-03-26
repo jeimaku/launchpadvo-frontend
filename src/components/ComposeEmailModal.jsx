@@ -1,34 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import launchpadLogo from '../assets/launchpad-logo.png'; 
 
 const SYSTEM_TEMPLATE = {
   id: 'system-automated-renewal',
   name: 'System Default: Automated Renewal',
   subject: 'Virtual Office Subscription Renewal Notice',
   isSystem: true,
-  isHtml: true,
   attachments: [],
-  body: `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
-      <div style="background-color: #fefce8; text-align: center; padding: 20px; border-bottom: 3px solid #d2f34c;">
-        <img src="${launchpadLogo}" alt="Launchpad Business Logo" style="max-width: 250px;" />
-      </div>
-      <div style="padding: 30px; color: #333; line-height: 1.6;">
-        <h2>Greetings, [Client Name]!</h2>
-        <p>We hope this email finds you well.</p>
-        <p>This is a formal notification regarding your <strong>Virtual Office</strong> subscription for <strong>[Company Name]</strong>. Our records indicate that your current subscription is scheduled to expire in <strong style="color: #eab308; font-size: 1.1em;">[X] days</strong> (on <strong>[Exact Expiry Date]</strong>).</p>
-        <p>To continue accessing the services and features of your Virtual Office, please renew your subscription at your earliest convenience. Maintaining an active subscription is vital for the continuity of your business operations.</p>
-        <p>Thank you for choosing Launchpad as your business partner.</p>
-        <br>
-        <p>Best Regards,<br><strong>Launchpad Management Team</strong></p>
-      </div>
-    </div>
-  `
+  body: `Greetings, [Client Name]!
+
+We hope this email finds you well.
+
+This is a formal notification regarding your Virtual Office subscription for [Company Name]. Our records indicate that your current subscription is scheduled to expire in [X] days (on [Exact Expiry Date]).
+
+To continue accessing the services and features of your Virtual Office, please renew your subscription at your earliest convenience. Maintaining an active subscription is vital for the continuity of your business operations.
+
+Thank you for choosing Launchpad as your business partner.
+
+Best Regards,
+Launchpad Management Team`
 };
 
 export default function ComposeEmailModal({ onClose, onSendSuccess }) {
-  // Added isHtml to track the explicit format the user wants to send
-  const [composeData, setComposeData] = useState({ to: '', subject: '', body: '', isHtml: false });
+  const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
   const [files, setFiles] = useState([]); 
   const [isSending, setIsSending] = useState(false);
   const [availableTemplates, setAvailableTemplates] = useState([]);
@@ -55,17 +48,13 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
     const template = availableTemplates.find(t => t.id === templateId);
     if (template) {
       
-      let parsedBody = template.body;
-      // If the template isn't HTML, just load it naturally
-      if (template.isHtml === false) {
-        parsedBody = template.body.replace(/<br \/>/g, '\n');
-      }
+      // Safely clean up any <br /> tags if loading older HTML-saved templates
+      let parsedBody = template.body ? template.body.replace(/<br \/>/g, '\n') : '';
 
       setComposeData(prev => ({ 
         ...prev, 
         subject: template.subject, 
-        body: parsedBody,
-        isHtml: template.isHtml // Auto-switch format to match the template
+        body: parsedBody
       }));
       
       const reconstructedFiles = template.attachments.map(att => 
@@ -96,14 +85,8 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
       formData.append('to', composeData.to);
       formData.append('subject', composeData.subject);
       
-      let finalBody = composeData.body;
-
-      // STRICT FORMATTING: 
-      // If user selected Text Mode, we safely wrap their line breaks in HTML for the backend.
-      // If user selected HTML Mode, we send it raw so the HTML renders perfectly.
-      if (!composeData.isHtml) {
-        finalBody = finalBody.replace(/\n/g, '<br />');
-      }
+      // Safely wrap line breaks in HTML for the backend to preserve formatting
+      let finalBody = composeData.body.replace(/\n/g, '<br />');
       formData.append('body', finalBody);
       
       files.forEach((file) => formData.append('attachments', file));
@@ -122,12 +105,6 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
       alert(`Error: ${error.message}`);
       setIsSending(false);
     }
-  };
-
-  // Helper function to safely render the preview without broken image links
-  const renderSafePreviewBody = (htmlContent) => {
-    if (!htmlContent) return '';
-    return htmlContent.replace(/src="([^"]*(launchpad-logo|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
   };
 
   const renderFilePreview = (file, i) => {
@@ -219,18 +196,6 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
                   <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-2 hidden sm:block">Message Body</label>
                   
                   <div className="flex items-center gap-4 w-full sm:w-auto overflow-x-auto">
-                    {/* Format Type Segmented Toggle */}
-                    <div className="flex p-1 bg-slate-200/70 rounded-lg shadow-inner shrink-0">
-                      <button type="button" onClick={() => setComposeData({...composeData, isHtml: false})} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${!composeData.isHtml ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                        Text Mode
-                      </button>
-                      <button type="button" onClick={() => setComposeData({...composeData, isHtml: true})} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${composeData.isHtml ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                        HTML Mode
-                      </button>
-                    </div>
-
-                    <div className="w-px h-6 bg-slate-300 shrink-0"></div>
-
                     {/* Editor/Preview Segmented Toggle */}
                     <div className="flex p-1 bg-slate-200/70 rounded-lg shadow-inner shrink-0">
                       <button type="button" onClick={() => setViewMode('edit')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'edit' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -246,26 +211,17 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
                 <div className="p-4 bg-slate-50/30">
                   {viewMode === 'edit' && (
                     <div className="mb-3 px-2">
-                      {!composeData.isHtml ? (
-                        <p className="text-sm text-slate-500 italic font-medium">Tip: Type naturally. Paragraphs and line breaks will be preserved perfectly when sent.</p>
-                      ) : (
-                        <p className="text-sm text-slate-500 italic font-medium">Tip: This will be sent in HTML format. You can use the <strong className="text-emerald-600">Preview</strong> tab to see how your email will look.</p>
-                      )}
+                      <p className="text-sm text-slate-500 italic font-medium">Tip: Type naturally. Paragraphs and line breaks will be preserved perfectly when sent.</p>
                     </div>
                   )}
 
                   {viewMode === 'edit' ? (
-                    <textarea required rows="10" className={`w-full rounded-xl border border-slate-300 bg-white px-5 py-4 text-base font-medium text-slate-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all resize-y ${composeData.isHtml ? 'font-mono text-sm' : ''}`} 
-                      value={composeData.body} onChange={(e) => setComposeData({...composeData, body: e.target.value})} placeholder={composeData.isHtml ? "<p>Write your HTML code here...</p>" : "Write your message here..."} />
+                    <textarea required rows="10" className="w-full rounded-xl border border-slate-300 bg-white px-5 py-4 text-base font-medium text-slate-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all resize-y" 
+                      value={composeData.body} onChange={(e) => setComposeData({...composeData, body: e.target.value})} placeholder="Write your message here..." />
                   ) : (
                     <div className="w-full min-h-[14rem] max-h-[22rem] rounded-xl border border-slate-300 bg-white px-6 py-5 overflow-y-auto custom-scrollbar prose max-w-none text-slate-800 shadow-inner">
-                      {composeData.isHtml ? (
-                        /* Properly renders the Safe HTML including the fixed logo */
-                        <div dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(composeData.body) || '<p class="text-slate-400 italic">No content to preview yet...</p>' }} />
-                      ) : (
-                        /* Previews Standard Text exactly how it will look via BR tags */
-                        <div dangerouslySetInnerHTML={{ __html: composeData.body.replace(/\n/g, '<br />') || '<p class="text-slate-400 italic">No content to preview yet...</p>' }} />
-                      )}
+                      {/* Previews Standard Text exactly how it will look via BR tags */}
+                      <div dangerouslySetInnerHTML={{ __html: composeData.body.replace(/\n/g, '<br />') || '<p class="text-slate-400 italic">No content to preview yet...</p>' }} />
                     </div>
                   )}
                 </div>
