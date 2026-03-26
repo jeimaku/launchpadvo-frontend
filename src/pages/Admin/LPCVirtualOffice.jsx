@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
+import NotificationBell from '../../components/NotificationBell'; // Added Import
 
 export default function LPCVirtualOffice() {
   const [clients, setClients] = useState([]);
@@ -26,6 +27,10 @@ export default function LPCVirtualOffice() {
 
   const [formData, setFormData] = useState(initialFormState);
 
+  // Role Check for Notification Bell
+  const userRole = localStorage.getItem('userRole') || '';
+  const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
+
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -46,7 +51,6 @@ export default function LPCVirtualOffice() {
   // ==========================================
   // 2. DYNAMIC DROPDOWN GENERATORS
   // ==========================================
-  // These automatically grab all unique values from your database to populate the dropdowns!
   const uniqueDurations = [...new Set(clients.map(c => c.duration))].filter(Boolean).sort();
   const uniqueRates = [...new Set(clients.map(c => Number(c.rate_per_month)))].filter(Boolean).sort((a,b) => a - b);
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
@@ -63,7 +67,6 @@ export default function LPCVirtualOffice() {
     const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
     const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
 
-    // A client only shows up if they pass ALL the selected filters!
     return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms;
   });
 
@@ -162,25 +165,27 @@ export default function LPCVirtualOffice() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden">
+        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPC Virtual Office</h2>
             <p className="text-slate-500 mt-1">Manage all clients stationed at the Commercenter branch.</p>
           </div>
-          <button 
-            onClick={handleAddNew}
-            className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm"
-          >
-            + Add New Client
-          </button>
+          <div className="flex items-center gap-4">
+            {canViewNotifications && <NotificationBell />}
+            <button 
+              onClick={handleAddNew}
+              className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm"
+            >
+              + Add New Client
+            </button>
+          </div>
         </header>
 
         {/* ========================================== */}
         {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
         {/* ========================================== */}
         <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          
-          {/* Top Row: Search */}
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
             <input 
@@ -192,10 +197,7 @@ export default function LPCVirtualOffice() {
             />
           </div>
 
-          {/* Bottom Row: The 4 Filter Dropdowns */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            
-            {/* 1. Status Filter */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
               <select 
@@ -210,7 +212,6 @@ export default function LPCVirtualOffice() {
               </select>
             </div>
 
-            {/* 2. Duration Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Duration</label>
               <select 
@@ -224,7 +225,6 @@ export default function LPCVirtualOffice() {
               </select>
             </div>
 
-            {/* 3. Agreed Rate Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Agreed Rate</label>
               <select 
@@ -238,7 +238,6 @@ export default function LPCVirtualOffice() {
               </select>
             </div>
 
-            {/* 4. Payment Terms Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Terms</label>
               <select 
@@ -251,7 +250,6 @@ export default function LPCVirtualOffice() {
                 ))}
               </select>
             </div>
-
           </div>
         </div>
 
@@ -341,7 +339,6 @@ export default function LPCVirtualOffice() {
             )}
 
             <form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-               {/* Column 1: Company & Contacts */}
                <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Client Details</h4>
                 <div>
@@ -366,7 +363,6 @@ export default function LPCVirtualOffice() {
                 </div>
               </div>
 
-              {/* Column 2: Contract & Dates */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Contract Info</h4>
                 <div>
@@ -387,10 +383,8 @@ export default function LPCVirtualOffice() {
                 </div>
               </div>
 
-              {/* Column 3: Billing & Status */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Billing & Status</h4>
-                
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">Package Tier *</label>
                   <select 

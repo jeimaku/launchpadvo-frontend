@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
+import NotificationBell from '../../components/NotificationBell'; // Added Import
 
 export default function LPOGVirtualOffice() {
   const [clients, setClients] = useState([]);
@@ -26,10 +27,13 @@ export default function LPOGVirtualOffice() {
 
   const [formData, setFormData] = useState(initialFormState);
 
+  // Role Check for Notification Bell
+  const userRole = localStorage.getItem('userRole') || '';
+  const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
+
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      // Fetches ONLY the LPOG clients!
       const response = await fetch('http://localhost:5000/api/virtual-offices?branch=LPOG', {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
@@ -118,7 +122,6 @@ export default function LPOGVirtualOffice() {
       ? `Custom: ${formData.custom_package_name}` 
       : formData.package_tier;
 
-    // Hardcoded branch to LPOG
     const payload = { ...formData, package_tier: finalPackageTier, branch: 'LPOG' };
     const url = actionType === 'EDIT' 
       ? `http://localhost:5000/api/virtual-offices/${clientId}` 
@@ -162,25 +165,27 @@ export default function LPOGVirtualOffice() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden">
+        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPOG Virtual Office</h2>
             <p className="text-slate-500 mt-1">Manage all clients stationed at the One Griffinstone branch.</p>
           </div>
-          <button 
-            onClick={handleAddNew}
-            className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm"
-          >
-            + Add New Client
-          </button>
+          <div className="flex items-center gap-4">
+            {canViewNotifications && <NotificationBell />}
+            <button 
+              onClick={handleAddNew}
+              className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm"
+            >
+              + Add New Client
+            </button>
+          </div>
         </header>
 
         {/* ========================================== */}
         {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
         {/* ========================================== */}
         <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          
-          {/* Top Row: Search */}
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
             <input 
@@ -192,10 +197,7 @@ export default function LPOGVirtualOffice() {
             />
           </div>
 
-          {/* Bottom Row: The 4 Filter Dropdowns */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            
-            {/* 1. Status Filter */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
               <select 
@@ -210,7 +212,6 @@ export default function LPOGVirtualOffice() {
               </select>
             </div>
 
-            {/* 2. Duration Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Duration</label>
               <select 
@@ -224,7 +225,6 @@ export default function LPOGVirtualOffice() {
               </select>
             </div>
 
-            {/* 3. Agreed Rate Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Agreed Rate</label>
               <select 
@@ -238,7 +238,6 @@ export default function LPOGVirtualOffice() {
               </select>
             </div>
 
-            {/* 4. Payment Terms Filter (Dynamic) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Terms</label>
               <select 
@@ -251,7 +250,6 @@ export default function LPOGVirtualOffice() {
                 ))}
               </select>
             </div>
-
           </div>
         </div>
 
@@ -341,7 +339,6 @@ export default function LPOGVirtualOffice() {
             )}
 
             <form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-               {/* Column 1: Company & Contacts */}
                <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Client Details</h4>
                 <div>
@@ -366,7 +363,6 @@ export default function LPOGVirtualOffice() {
                 </div>
               </div>
 
-              {/* Column 2: Contract & Dates */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Contract Info</h4>
                 <div>
@@ -387,10 +383,8 @@ export default function LPOGVirtualOffice() {
                 </div>
               </div>
 
-              {/* Column 3: Billing & Status */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Billing & Status</h4>
-                
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">Package Tier *</label>
                   <select 
@@ -400,7 +394,6 @@ export default function LPOGVirtualOffice() {
                     onChange={(e) => {
                       const selected = e.target.value;
                       let autoRate = ''; 
-                      // LPOG RATE IS 4500
                       if (selected === 'Virtual Office Package') autoRate = 4500; 
                       setFormData({
                           ...formData, package_tier: selected, rate_per_month: autoRate,

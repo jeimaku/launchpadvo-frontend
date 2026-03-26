@@ -8,9 +8,12 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
   
   // --- Volume Control States ---
-  const [volume, setVolume] = useState(1); // Default volume is 100%
-  const [prevVolume, setPrevVolume] = useState(1); // Remembers volume before muting
+  const [volume, setVolume] = useState(1); 
+  const [prevVolume, setPrevVolume] = useState(1); 
   const volumeRef = useRef(volume);
+
+  // --- Caching the Audio Object ---
+  const audioRef = useRef(new Audio('/notification.mp3'));
 
   // --- Unread Tracking State ---
   const [readEmailIds, setReadEmailIds] = useState(() => {
@@ -19,6 +22,10 @@ export default function NotificationBell() {
   });
 
   const notificationRef = useRef(null);
+  
+  // Validate Role globally for this component
+  const userRole = (localStorage.getItem('userRole') || '').toLowerCase();
+  const isAuthorized = ['admin', 'manager', 'staff'].includes(userRole);
 
   useEffect(() => {
     volumeRef.current = volume;
@@ -53,31 +60,34 @@ export default function NotificationBell() {
   };
 
   useEffect(() => {
+    if (!isAuthorized) return; // Do not connect socket if not authorized
+
     fetchNotifications();
 
-    const socket = io('http://localhost:5000');
+    const socket = io('http://localhost:5000', {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
     
     socket.on('incoming_email', () => {
-      const currentRole = localStorage.getItem('userRole');
-      
-      if (['admin', 'manager', 'staff'].includes(currentRole)) {
-        setHasNewEmail(true); 
-        fetchNotifications();
+      setHasNewEmail(true); 
+      fetchNotifications();
 
-        if (volumeRef.current > 0) {
-          const notificationSound = new Audio('/notification.mp3');
-          notificationSound.volume = volumeRef.current;
-          notificationSound.play().catch(err => {
-            console.warn("Audio playback blocked by browser. User interaction required:", err);
-          });
-        }
+      // Play sound using the cached Audio object
+      if (volumeRef.current > 0 && audioRef.current) {
+        audioRef.current.volume = volumeRef.current;
+        // Reset time in case multiple notifications come quickly
+        audioRef.current.currentTime = 0; 
+        audioRef.current.play().catch(err => {
+          console.warn("Audio playback blocked by browser. User interaction required:", err);
+        });
+      }
 
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("Launchpad Virtual Office", {
-            body: "You have received a new email notification.",
-            icon: "/launchpad-logo2.png",
-          });
-        }
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Launchpad Virtual Office", {
+          body: "You have received a new email notification.",
+          icon: "/launchpad-logo2.png",
+        });
       }
     });
 
@@ -88,12 +98,13 @@ export default function NotificationBell() {
     }
     document.addEventListener("mousedown", handleClickOutside);
 
+    // Strict Cleanup
     return () => {
       socket.off('incoming_email');
       socket.disconnect();
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, []);
+  }, [isAuthorized]);
 
   // --- Volume Handlers ---
   const handleVolumeChange = (e) => {
@@ -128,6 +139,9 @@ export default function NotificationBell() {
   };
 
   const unreadCount = notifications.filter(n => !readEmailIds.includes(n.id)).length;
+
+  // Render nothing if user role is not authorized
+  if (!isAuthorized) return null;
 
   return (
     <>
@@ -229,8 +243,6 @@ export default function NotificationBell() {
 
             {/* --- Volume Control Sub-Header --- */}
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center gap-4 shrink-0 shadow-inner">
-              
-              {/* Left Side: Muted Bell Toggle (Red when muted, Slate when active) */}
               <button 
                 onClick={toggleMute} 
                 className="group cursor-pointer p-1.5 rounded-full hover:bg-red-50 transition-colors focus:outline-none"
@@ -247,7 +259,6 @@ export default function NotificationBell() {
                 </svg>
               </button>
 
-              {/* Center: Styled Slider Track */}
               <div className="flex-1 flex items-center relative h-1.5 rounded-lg bg-slate-200 overflow-visible group cursor-pointer">
                 <div 
                   className="absolute left-0 top-0 bottom-0 rounded-l-lg pointer-events-none transition-all duration-75" 
@@ -262,13 +273,11 @@ export default function NotificationBell() {
                 />
               </div>
 
-              {/* Right Side: Ringing Bell with Sound Waves (Emerald Green when active) */}
               <button 
                 onClick={setMaxVolume}
                 className="group cursor-pointer p-1.5 rounded-full hover:bg-emerald-50 transition-colors focus:outline-none" 
                 title="Set to Max Volume"
               >
-                {/* Expanded viewBox to 28 so the waves don't get cut off! */}
                 <svg viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" 
                   className={`w-6 h-6 transition-colors duration-200 ${volume > 0.5 ? 'text-emerald-500' : 'text-emerald-300 group-hover:text-emerald-400'}`}
                 >
@@ -302,13 +311,10 @@ export default function NotificationBell() {
                       className="block px-6 py-4 border-b border-slate-200 bg-white hover:bg-slate-50 transition-all relative group"
                     >
                       <div className="flex items-start gap-4 relative">
-                        
-                        {/* Unread Indicator Glowing Dot (This is the ONLY thing removed when clicked) */}
                         {isUnread && (
                           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-[#b8d839] shadow-[0_0_8px_rgba(210,243,76,0.8)]"></span>
                         )}
 
-                        {/* Custom Avatar Icon (Color stays the same forever) */}
                         <div className="h-11 w-11 ml-3 rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform duration-300 bg-slate-800 border-2 border-slate-700 group-hover:scale-105">
                           <svg className="w-5 h-5 text-[#d2f34c]" fill="currentColor" viewBox="0 0 20 20">
                             <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
@@ -316,7 +322,6 @@ export default function NotificationBell() {
                           </svg>
                         </div>
                         
-                        {/* Text Content (Font and weight stay exactly the same forever) */}
                         <div className="flex-1 min-w-0">
                           <p className="text-[14px] text-slate-900 font-bold truncate mb-0.5">
                             {n.sender}
@@ -344,7 +349,6 @@ export default function NotificationBell() {
                 View Email Center
               </Link>
             )}
-
           </div>
         )}
       </div>

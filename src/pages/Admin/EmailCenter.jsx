@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Sidebar from '../../components/Sidebar'; 
 import EmailSidebar from '../../components/EmailSidebar'; 
+import NotificationBell from '../../components/NotificationBell'; // Added Import
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 import md5 from 'md5'; 
 
@@ -25,6 +26,10 @@ export default function EmailCenter() {
   const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false });
 
   const systemEmail = "lptest.renewal@gmail.com";
+
+  // Role Check for Notification Bell
+  const userRole = localStorage.getItem('userRole') || '';
+  const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
   useEffect(() => {
     if (location.state?.tab) {
@@ -60,8 +65,8 @@ export default function EmailCenter() {
     fetchEmails();
     const socket = io('http://localhost:5000');
     socket.on('incoming_email', () => {
-      const userRole = localStorage.getItem('userRole');
-      if (['admin', 'manager', 'staff'].includes(userRole)) {
+      const currentRole = localStorage.getItem('userRole');
+      if (['admin', 'manager', 'staff'].includes(currentRole)) {
         fetchEmails(); 
       }
     });
@@ -149,7 +154,6 @@ export default function EmailCenter() {
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
 
-      {/* GLOBAL MODAL ANIMATION STYLES */}
       <style>{`
         @keyframes modalPopIn {
           0% { opacity: 0; transform: scale(0.9) translateY(10px); }
@@ -161,9 +165,15 @@ export default function EmailCenter() {
       <Sidebar />
 
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
-        <div className="mb-6 shrink-0">
-          <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
-          <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
+        <div className="mb-6 shrink-0 flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
+            <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+          </div>
+          <div className="flex items-center gap-4">
+            {canViewNotifications && <NotificationBell />}
+          </div>
         </div>
 
         <div className="flex gap-6 flex-1 min-h-0">
@@ -284,7 +294,6 @@ export default function EmailCenter() {
 
       {/* --- CUSTOM DIALOGS WITH POP-IN ANIMATION --- */}
 
-      {/* 1. Soft Delete (Move to Trash) Modal */}
       {deletePrompt.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
@@ -303,7 +312,6 @@ export default function EmailCenter() {
         </div>
       )}
 
-      {/* 2. Success/Error Alert Modal */}
       {alertPrompt.isOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
@@ -319,7 +327,6 @@ export default function EmailCenter() {
         </div>
       )}
 
-      {/* FIXED: The View Modal is now rendered cleanly without an extra wrapper! */}
       <EmailViewModal email={selectedEmail} onClose={() => setSelectedEmail(null)} formatExactDateTime={formatExactDateTime} systemEmail={systemEmail} />
 
       {showComposeModal && (

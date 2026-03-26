@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import Sidebar from '../../components/Sidebar';
 import EmailSidebar from '../../components/EmailSidebar';
 import ComposeEmailModal from '../../components/ComposeEmailModal';
+import NotificationBell from '../../components/NotificationBell'; 
 import launchpadLogo from '../../assets/launchpad-logo.png'; 
 
 // System Default Template
@@ -14,7 +15,7 @@ const SYSTEM_TEMPLATE = {
   isHtml: true, 
   attachments: [],
   body: `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
+    <div style="font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
       <div style="background-color: #fefce8; text-align: center; padding: 20px; border-bottom: 3px solid #d2f34c;">
         <img src="${launchpadLogo}" alt="Launchpad Business Logo" style="max-width: 250px;" />
       </div>
@@ -52,6 +53,9 @@ export default function EmailTemplates() {
   });
 
   const [previewTemplate, setPreviewTemplate] = useState(null);
+
+  const userRole = localStorage.getItem('userRole') || '';
+  const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
   const fetchEmailCounts = async () => {
     try {
@@ -223,9 +227,8 @@ export default function EmailTemplates() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+    <div className="flex h-screen bg-slate-100 overflow-hidden">
       
-      {/* GLOBAL MODAL ANIMATION STYLES */}
       <style>{`
         @keyframes modalPopIn {
           0% { opacity: 0; transform: scale(0.9) translateY(10px); }
@@ -242,9 +245,14 @@ export default function EmailTemplates() {
       <Sidebar />
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
         
-        <div className="mb-6 shrink-0">
-          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Email Center</h1>
-          <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+        <div className="mb-6 shrink-0 flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
+            <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+          </div>
+          <div className="flex items-center gap-4">
+            {canViewNotifications && <NotificationBell />}
+          </div>
         </div>
 
         <div className="flex gap-6 flex-1 min-h-0">
@@ -252,10 +260,9 @@ export default function EmailTemplates() {
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden relative">
             
-            {/* Header Section */}
             <div className="flex items-center justify-between border-b border-slate-100 p-8 bg-slate-50/80 shrink-0">
               <div>
-                <h3 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+                <h3 className="text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tight">
                   <span className="text-3xl">📚</span>
                   {currentView === 'library' && 'Template Library'}
                   {currentView === 'form' && (formData.id ? 'Edit Template' : 'Create New Template')}
@@ -269,12 +276,11 @@ export default function EmailTemplates() {
               </div>
               {currentView === 'library' && (
                 <button onClick={() => { resetForm(); setCurrentView('form'); }} className="rounded-xl bg-[#d2f34c] px-6 py-3 font-bold text-slate-900 text-base shadow-sm hover:bg-[#b8d839] hover:-translate-y-0.5 transition-all flex items-center gap-2">
-                  <span className="text-xl leading-none">+</span> Create New Template
+                  <span className="text-xl leading-none font-black">+</span> Create New Template
                 </button>
               )}
             </div>
 
-            {/* VIEW 1: TEMPLATE LIBRARY LISTING */}
             {currentView === 'library' && (
               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
                 <div className="flex flex-col gap-4">
@@ -334,7 +340,6 @@ export default function EmailTemplates() {
               </div>
             )}
 
-            {/* VIEW 2: TEMPLATE FORM */}
             {currentView === 'form' && (
               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
                 <div className="max-w-4xl mx-auto">
@@ -361,7 +366,6 @@ export default function EmailTemplates() {
                       <div className="flex items-center justify-between mb-2">
                         <label className="block text-sm font-bold text-slate-700 uppercase tracking-widest">Email Body</label>
                         
-                        {/* Modern Segmented Control for Mode Toggle */}
                         <div className="flex p-1 bg-slate-100 rounded-lg shadow-inner">
                           <button type="button" onClick={() => setFormData({...formData, isHtml: false})} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${!formData.isHtml ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
                             Text Mode
@@ -387,7 +391,6 @@ export default function EmailTemplates() {
                     <div>
                       <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Permanent Attachments</label>
                       
-                      {/* Refined Dropzone */}
                       <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-8 relative hover:bg-[#d2f34c]/5 hover:border-[#d2f34c] transition-colors text-center cursor-pointer mb-4 group">
                         <input type="file" multiple onChange={(e) => { if(e.target.files) setFormData({...formData, newFiles: [...formData.newFiles, ...Array.from(e.target.files)]}) }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                         <svg className="mx-auto h-10 w-10 text-slate-400 group-hover:text-[#b8d839] transition-colors mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -425,7 +428,6 @@ export default function EmailTemplates() {
               </div>
             )}
 
-            {/* VIEW 3: TEMPLATE PREVIEW */}
             {currentView === 'preview' && previewTemplate && (
               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-100/50 flex flex-col">
                 <div className="max-w-4xl mx-auto w-full">
@@ -473,14 +475,11 @@ export default function EmailTemplates() {
         </div>
       </main>
 
-      {/* --- CUSTOM DIALOGS WITH POP-IN ANIMATION --- */}
-
-      {/* 1. Delete Template Confirmation Modal */}
       {templateToDelete && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-modal-pop">
             <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6 text-red-500 text-4xl shadow-inner">⚠️</div>
-            <h3 className="text-2xl font-bold text-slate-900 mb-2">Delete Template?</h3>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Template?</h3>
             <p className="text-slate-500 font-medium text-base mb-8">This action cannot be undone. You will lose this template and its attachments.</p>
             <div className="flex gap-3 w-full">
               <button onClick={() => setTemplateToDelete(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl transition-colors text-base uppercase tracking-wide">
@@ -494,14 +493,13 @@ export default function EmailTemplates() {
         </div>
       )}
 
-      {/* 2. Success/Error Alert Modal */}
       {alertPrompt.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
             <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 text-4xl shadow-inner ${alertPrompt.isError ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'}`}>
               {alertPrompt.isError ? '❌' : '✅'}
             </div>
-            <h3 className="text-2xl font-bold text-slate-900 mb-2">{alertPrompt.isError ? 'Error' : 'Success'}</h3>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">{alertPrompt.isError ? 'Error' : 'Success'}</h3>
             <p className="text-slate-500 font-medium text-base mb-8">{alertPrompt.message}</p>
             <button onClick={() => setAlertPrompt({ isOpen: false, message: '', isError: false })} className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-sm transition-all text-base uppercase tracking-wide">
               Got it

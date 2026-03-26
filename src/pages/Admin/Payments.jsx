@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
+import NotificationBell from '../../components/NotificationBell'; // Added Import
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import myLogo from '../../assets/launchpad.png';
@@ -20,12 +21,14 @@ export default function Payments() {
   // Modals
   const [viewModal, setViewModal] = useState({ show: false, payment: null });
   
-  // 📸 NEW: State for the Receipt Preview Modal
+  // Receipt Preview Modal
   const [receiptPreview, setReceiptPreview] = useState({ show: false, data: null });
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // User Role Checking
   const userRole = localStorage.getItem('userRole') || 'staff';
   const canVerify = ['admin', 'manager', 'supervisor'].includes(userRole);
+  const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
   const [formData, setFormData] = useState({
     virtual_office_id: '', amount_paid: '', mode_of_payment: '', 
@@ -83,7 +86,6 @@ export default function Payments() {
     const receiptElement = document.getElementById('secure-receipt-template');
     if (!receiptElement) throw new Error("Receipt element not found");
     
-    // Force capture of the ENTIRE scrollable height and width to prevent cut-offs
     return await toPng(receiptElement, { 
       cacheBust: true, 
       backgroundColor: '#ffffff', 
@@ -98,7 +100,7 @@ export default function Payments() {
     try {
       const dataUrl = await captureReceiptImage();
       const link = document.createElement('a');
-      link.download = `Launchpad_Receipt_${receiptPreview.data.official_receipt_number}.png`; // (or .pdf)
+      link.download = `Launchpad_Receipt_${receiptPreview.data.official_receipt_number}.png`; 
       link.href = dataUrl;
       link.click();
     } catch (error) {
@@ -114,14 +116,12 @@ export default function Payments() {
       const dataUrl = await captureReceiptImage();
       const receiptElement = document.getElementById('secure-receipt-template');
       
-      // 1. Create a standard A4 sized PDF
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
 
-      // 2. Calculate proportions to fit the image beautifully on the A4 page
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       const imgWidth = receiptElement.scrollWidth;
@@ -131,10 +131,8 @@ export default function Payments() {
       const finalWidth = imgWidth * ratio;
       const finalHeight = imgHeight * ratio;
 
-      // 3. Center the image horizontally
       const marginX = (pdfWidth - finalWidth) / 2;
 
-      // 4. Embed the secure PNG into the PDF
       pdf.addImage(dataUrl, 'PNG', marginX, 0, finalWidth, finalHeight);
       pdf.save(`Launchpad_Receipt_REC${receiptPreview.data.id.toString().padStart(5, '0')}.pdf`);
     } catch (error) {
@@ -202,14 +200,18 @@ export default function Payments() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen">
+        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">Payments & Receipts</h2>
             <p className="text-slate-500 mt-1">Master financial ledger and verification queue.</p>
           </div>
-          <button onClick={() => setShowRecordModal(true)} className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm flex items-center gap-2">
-            <span>+</span> Record Payment
-          </button>
+          <div className="flex items-center gap-4">
+            {canViewNotifications && <NotificationBell />}
+            <button onClick={() => setShowRecordModal(true)} className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm flex items-center gap-2">
+              <span>+</span> Record Payment
+            </button>
+          </div>
         </header>
 
         {/* METRICS DASHBOARD */}
@@ -324,7 +326,6 @@ export default function Payments() {
 
                           {payment.status === 'Verified' && (
                             <>
-                              {/* TRIGGER RECEIPT PREVIEW MODAL */}
                               <button 
                                 onClick={() => setReceiptPreview({ show: true, data: payment })} 
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border text-green-700 bg-green-50 border-green-200 hover:bg-green-100 shadow-sm"
@@ -351,15 +352,13 @@ export default function Payments() {
         </div>
       </div>
 
-
       {/* ========================================== */}
-      {/* 🧾 NEW: THE RECEIPT PREVIEW & DOWNLOAD MODAL */}
+      {/* 🧾 RECEIPT PREVIEW MODAL */}
       {/* ========================================== */}
       {receiptPreview.show && receiptPreview.data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl flex flex-col max-h-[95vh] w-full max-w-[900px] overflow-hidden animate-fade-in">
             
-            {/* Modal Header & Download Buttons */}
             <div className="flex flex-col sm:flex-row justify-between items-center p-6 border-b border-slate-200 bg-slate-50">
               <h2 className="text-xl font-bold text-slate-800 mb-4 sm:mb-0">Receipt Preview</h2>
               <div className="flex gap-3 w-full sm:w-auto">
@@ -386,28 +385,20 @@ export default function Payments() {
               </div>
             </div>
 
-            {/* Scrollable Receipt Area (This is what html-to-image captures!) */}
             <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200 flex justify-center custom-scrollbar">
-              
-              {/* THE EXACT RECEIPT TEMPLATE */}
-              {/* Added min-h-[1130px] to mimic A4 proportions, and flex flex-col to push footer down */}
-              <div id="secure-receipt-template" className="w-[800px] min-h-[1130px] shrink-0 bg-white text-black font-serif p-12 shadow-lg border border-slate-200 flex flex-col">
+              <div id="secure-receipt-template" className="w-[800px] min-h-[1130px] shrink-0 bg-white text-black font-serif p-12 shadow-lg border border-slate-200 flex flex-col relative overflow-hidden">
 
-              {/* ANTI-FORGERY WATERMARK */}
                 <div className="absolute inset-0 pointer-events-none opacity-[0.03] z-0" 
                     style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><text x="0" y="100" font-family="sans-serif" font-size="24" font-weight="bold" fill="black" transform="rotate(-45 100 100)">LAUNCHPAD COWORKING</text></svg>')`, backgroundSize: '150px 150px' }}>
                 </div>
 
-                {/* Top Brand Header */}
-                <div className="flex justify-between items-start border-b-[3px] border-slate-900 pb-6 mb-8">
+                <div className="flex justify-between items-start border-b-[3px] border-slate-900 pb-6 mb-8 relative z-10">
                   <div className="flex items-center gap-4">
                   <img src={myLogo} alt="Launchpad Logo" className="h-16 object-contain" />
                   <div className="mt-1">
-                    {/* Applies the heavy Serif font and solid black color */}
                     <h1 className="text-4xl font-serif font-black uppercase tracking-tight text-black leading-none">
                       Launchpad
                     </h1>
-                    {/* Applies the Sans-Serif font, custom slate-blue color, and wide spacing */}
                     <p className="text-lg font-sans font-bold text-[#567189] uppercase tracking-[0.25em] mt-1">
                       Coworking
                     </p>
@@ -420,8 +411,7 @@ export default function Payments() {
                   </div>
                 </div>
 
-                {/* 2-Column Details */}
-                <div className="grid grid-cols-2 gap-12 mb-10">
+                <div className="grid grid-cols-2 gap-12 mb-10 relative z-10">
                   <div className="p-5 border border-slate-200 rounded-lg bg-slate-50">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Branch / Facility</p>
                     <p className="text-lg font-bold text-slate-800">{receiptPreview.data.branch === 'LPC' ? 'Commercenter Alabang' : receiptPreview.data.branch === 'LPOG' ? 'One Griffinstone' : 'Headquarters'}</p>
@@ -434,8 +424,7 @@ export default function Payments() {
                   </div>
                 </div>
 
-                {/* Main Inclusions Table */}
-                <table className="w-full text-left mb-10 border-collapse">
+                <table className="w-full text-left mb-10 border-collapse relative z-10">
                   <thead>
                     <tr className="border-b-2 border-slate-900">
                       <th className="py-3 px-2 text-sm font-bold text-slate-800 uppercase tracking-wider w-[40%]">Package Tier</th>
@@ -478,8 +467,7 @@ export default function Payments() {
                   </tbody>
                 </table>
 
-                {/* Invoice Summary */}
-                <div className="flex justify-end mb-12">
+                <div className="flex justify-end mb-12 relative z-10">
                   <div className="w-[400px] bg-slate-50 rounded-lg border border-slate-200 p-6 shadow-sm">
                     <h4 className="text-sm font-bold text-slate-800 uppercase tracking-widest border-b border-slate-300 pb-3 mb-4 text-center">Payment Summary</h4>
                     <div className="space-y-3 text-sm font-medium">
@@ -501,30 +489,26 @@ export default function Payments() {
                   </div>
                 </div>
 
-                  {/* Signatures / Audit Trail Footer + QR Code */}
-                  {/* Notice I changed grid-cols-2 to grid-cols-3 and added relative z-10 */}
-                  <div className="grid grid-cols-3 gap-8 text-sm mt-auto pt-8 border-t border-slate-200 relative z-10">
-                    <div>
-                      <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Received & Encoded By</p>
-                      <p className="text-slate-500 font-medium">{receiptPreview.data.recorded_by_name}</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Officially Verified By</p>
-                      <p className="text-slate-500 font-medium">{receiptPreview.data.verified_by_name || 'Management Team'}</p>
-                    </div>
-                    
-                    {/* THE OFFLINE SECURE QR CODE */}
-                    <div className="flex justify-end items-center">
-                      <QRCodeSVG 
-                        value={`LAUNCHPAD COWORKING\nReceipt: ${receiptPreview.data.official_receipt_number}\nBilled To: ${receiptPreview.data.company_name}\nAmount: PHP ${receiptPreview.data.amount_paid}\nDate: ${new Date(receiptPreview.data.payment_date).toLocaleDateString()}\nStatus: OFFICIAL`}
-                        size={80}
-                        level="M"
-                        includeMargin={true}
-                      />
-                    </div>
+                <div className="grid grid-cols-3 gap-8 text-sm mt-auto pt-8 border-t border-slate-200 relative z-10">
+                  <div>
+                    <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Received & Encoded By</p>
+                    <p className="text-slate-500 font-medium">{receiptPreview.data.recorded_by_name}</p>
                   </div>
+                  <div>
+                    <p className="font-bold text-slate-800 uppercase tracking-widest mb-1">Officially Verified By</p>
+                    <p className="text-slate-500 font-medium">{receiptPreview.data.verified_by_name || 'Management Team'}</p>
+                  </div>
+                  <div className="flex justify-end items-center">
+                    <QRCodeSVG 
+                      value={`LAUNCHPAD COWORKING\nReceipt: ${receiptPreview.data.official_receipt_number}\nBilled To: ${receiptPreview.data.company_name}\nAmount: PHP ${receiptPreview.data.amount_paid}\nDate: ${new Date(receiptPreview.data.payment_date).toLocaleDateString()}\nStatus: OFFICIAL`}
+                      size={80}
+                      level="M"
+                      includeMargin={true}
+                    />
+                  </div>
+                </div>
 
-                <p className="text-center text-xs font-semibold text-slate-400 mt-16 tracking-widest uppercase">This is a system-generated, immutable official receipt.</p>
+                <p className="text-center text-xs font-semibold text-slate-400 mt-16 tracking-widest uppercase relative z-10">This is a system-generated, immutable official receipt.</p>
 
               </div>
             </div>
@@ -532,10 +516,6 @@ export default function Payments() {
         </div>
       )}
 
-
-      {/* THE OTHER MODALS KEEP EXACTLY THE SAME... */}
-      {/* ... (View Overview Modal, Record Payment Modal, Confirm Action Modal) ... */}
-      
       {/* OVERVIEW MODAL */}
       {viewModal.show && viewModal.payment && (() => {
         const payment = viewModal.payment;

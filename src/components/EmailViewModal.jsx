@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import md5 from 'md5'; 
 import launchpadLogo from '../assets/launchpad-logo2.png'; 
 
@@ -87,7 +87,7 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
     } else if (isDoc) {
       visualContent = <div className="text-3xl text-blue-500">📝</div>;
     } else {
-      visualContent = <div className="text-3xl text-slate-400">📎</div>;
+      visualContent = <div className="text-3xl text-slate-400">📁</div>;
     }
 
     const fileExt = att.filename?.split('.').pop()?.toUpperCase().substring(0, 4) || 'FILE';
@@ -163,30 +163,31 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
         }
       `}</style>
       
+      {/* REMOVED hardcoded Arial styling here to allow the component 
+        to inherit your modern global font-sans classes perfectly. 
+      */}
       <div 
-        className={`fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-8 
+        className={`fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-8 font-sans
           ${isClosing ? 'animate-overlay-exit' : 'animate-overlay-enter'}`} 
-        style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
         
-        {/* STRICT MODAL BOUNDARIES: max-h-[90vh] enforces the window size */}
-        <div className={`w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/50 
+        <div className={`w-full max-w-5xl rounded-3xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/50 
           ${isClosing ? 'animate-modal-exit' : 'animate-modal-enter'}`}>
           
-          {/* 1. Header: Subject & Date (shrink-0 prevents it from squishing) */}
+          {/* 1. Header: Subject & Date */}
           <div className="relative border-b border-slate-200 p-8 bg-white shrink-0 flex justify-between items-start gap-6">
             <div className="flex-1">
-              <h3 className="text-3xl leading-tight">
-                <span className="font-normal text-black text-[11px] uppercase tracking-widest mr-3 block mb-2">Subject:</span>
-                <span className="font-bold text-black">{displayEmail.subject}</span>
+              <h3 className="text-3xl leading-tight text-slate-900 tracking-tight">
+                <span className="font-bold text-slate-400 text-xs uppercase tracking-widest mr-3 block mb-2">Subject:</span>
+                <span className="font-black text-slate-900">{displayEmail.subject}</span>
               </h3>
             </div>
             
             <div className="flex flex-col items-end shrink-0 pt-1 border-r border-slate-200 pr-8 mr-14">
-              <span className="text-[11px] font-normal text-black uppercase tracking-widest mb-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
                 {displayEmail.isIncoming ? 'Date Received:' : 'Date Sent:'}
               </span>
-              <span className="text-sm text-black font-bold">
+              <span className="text-sm text-slate-800 font-bold">
                 {formatExactDateTime(displayEmail.sent_at)}
               </span>
             </div>
@@ -200,8 +201,8 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
             </button>
           </div>
           
-          {/* 2. Sub-Header: Sender & Recipient Block (shrink-0) */}
-          <div className="flex items-center gap-4 bg-slate-50/80 px-8 py-5 border-b border-slate-200 shrink-0">
+          {/* 2. Sub-Header: Sender & Recipient Block */}
+          <div className="flex items-center gap-4 bg-slate-50/80 px-8 py-5 border-b border-slate-100 shrink-0">
             <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white overflow-hidden">
               {displayEmail.isIncoming ? (
                 <img 
@@ -229,48 +230,47 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
             <div className="flex-1 min-w-0">
               {displayEmail.isIncoming ? (
                 <>
-                  <p className="text-lg text-black font-normal truncate">
+                  <p className="text-lg text-slate-900 font-normal truncate">
                     <span className="font-bold">{displayEmail.sender_name && displayEmail.sender_name !== displayEmail.sender_email ? displayEmail.sender_name : displayEmail.sender_email}</span> 
                     {displayEmail.sender_name && displayEmail.sender_name !== displayEmail.sender_email && (
-                      <span className="text-black text-sm ml-2">&lt;{displayEmail.sender_email}&gt;</span>
+                      <span className="text-slate-500 text-sm ml-2 font-medium">&lt;{displayEmail.sender_email}&gt;</span>
                     )}
                   </p>
-                  <p className="text-sm text-black mt-1 flex items-center gap-2">
-                    <span className="font-normal text-black uppercase tracking-widest text-[10px]">To:</span>
-                    <span className="font-bold">Launchpad</span> &lt;{systemEmail}&gt;
+                  <p className="text-sm text-slate-600 mt-1 flex items-center gap-2">
+                    <span className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">To:</span>
+                    <span className="font-bold text-slate-800">Launchpad</span> <span className="text-slate-500">&lt;{systemEmail}&gt;</span>
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-lg text-black font-normal truncate">
+                  <p className="text-lg text-slate-900 font-normal truncate">
                     <span className="font-bold">Launchpad Virtual Office</span> 
-                    <span className="text-black text-sm ml-2">&lt;{systemEmail}&gt;</span>
+                    <span className="text-slate-500 text-sm ml-2 font-medium">&lt;{systemEmail}&gt;</span>
                   </p>
-                  <p className="text-sm text-black mt-1 flex items-center gap-2 truncate">
-                    <span className="font-normal text-black uppercase tracking-widest text-[10px]">To:</span>
-                    <span className="font-bold">{displayEmail.recipient_email || displayEmail.recipient || 'Recipient'}</span>
+                  <p className="text-sm text-slate-600 mt-1 flex items-center gap-2 truncate">
+                    <span className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">To:</span>
+                    <span className="font-bold text-slate-800">{displayEmail.recipient_email || displayEmail.recipient || 'Recipient'}</span>
                   </p>
                 </>
               )}
             </div>
           </div>
           
-          {/* 3. Scrollable Body Section - min-h-0 is the secret to forcing flexbox to scroll! */}
+          {/* 3. Scrollable Body Section */}
           <div className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1 relative min-h-0">
             <div className="mb-4">
-              <span className="font-normal text-black uppercase tracking-widest text-[11px]">E-mail Content:</span>
+              <span className="font-bold text-slate-400 uppercase tracking-widest text-xs">E-mail Content:</span>
             </div>
             <div 
-              className="prose max-w-none text-black text-[15px] leading-relaxed pb-8" 
+              className="prose max-w-none text-slate-800 text-[15px] leading-relaxed pb-8" 
               dangerouslySetInnerHTML={{ __html: displayEmail.body }} 
-              style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
             />
           </div>
 
-          {/* 4. Organized Attachments Tray (shrink-0) */}
+          {/* 4. Organized Attachments Tray */}
           {sortedAttachments.length > 0 && (
             <div className="border-t border-slate-200 bg-slate-50 p-8 shrink-0">
-              <h4 className="text-[11px] font-normal text-black mb-4 uppercase tracking-widest flex items-center gap-2">
+              <h4 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                 {sortedAttachments.length} Attachment{sortedAttachments.length > 1 ? 's' : ''}
               </h4>
