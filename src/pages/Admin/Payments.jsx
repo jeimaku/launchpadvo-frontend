@@ -38,7 +38,7 @@ export default function Payments() {
   const fetchPayments = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/payments', {
+      const response = await fetch('http://192.168.200.15:5000/api/payments', {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
       if (response.ok) {
@@ -51,8 +51,8 @@ export default function Payments() {
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const resLPC = await fetch('http://localhost:5000/api/virtual-offices?branch=LPC', { headers: { 'Authorization': `Bearer ${token}` }});
-      const resLPOG = await fetch('http://localhost:5000/api/virtual-offices?branch=LPOG', { headers: { 'Authorization': `Bearer ${token}` }});
+      const resLPC = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', { headers: { 'Authorization': `Bearer ${token}` }});
+      const resLPOG = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPOG', { headers: { 'Authorization': `Bearer ${token}` }});
       
       if (resLPC.ok && resLPOG.ok) {
         const lpcData = await resLPC.json();
@@ -148,7 +148,7 @@ export default function Payments() {
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/payments', {
+      const response = await fetch('http://192.168.200.15:5000/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(formData)
@@ -173,11 +173,11 @@ export default function Payments() {
     try {
       let response;
       if (type === 'VERIFY') {
-        response = await fetch(`http://localhost:5000/api/payments/${paymentId}/verify`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}/verify`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
       } else if (type === 'DELETE') {
-        response = await fetch(`http://localhost:5000/api/payments/${paymentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
       } else if (type === 'VOID') {
-        response = await fetch(`http://localhost:5000/api/payments/${paymentId}/void`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}/void`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
       }
       if (!response.ok) throw new Error('Action failed');
       fetchPayments();

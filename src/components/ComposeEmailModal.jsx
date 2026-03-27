@@ -91,7 +91,7 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
       
       files.forEach((file) => formData.append('attachments', file));
 
-      const response = await fetch('http://localhost:5000/api/emails/send', {
+      const response = await fetch('http://192.168.200.15:5000/api/emails/send', {
         method: 'POST',
         headers: { 'Authorization': token ? `Bearer ${token}` : '' },
         body: formData 

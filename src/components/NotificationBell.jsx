@@ -40,7 +40,7 @@ export default function NotificationBell() {
   const fetchNotifications = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/emails/inbox', {
+      const response = await fetch('http://192.168.200.15:5000/api/emails/inbox', {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
       
@@ -64,7 +64,7 @@ export default function NotificationBell() {
 
     fetchNotifications();
 
-    const socket = io('http://localhost:5000', {
+    const socket = io('http://192.168.200.15:5000', {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });

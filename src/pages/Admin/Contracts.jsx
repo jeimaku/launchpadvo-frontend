@@ -16,7 +16,7 @@ export default function Contracts() {
   const fetchContracts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/contracts', {
+      const response = await fetch('http://192.168.200.15:5000/api/contracts', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -32,7 +32,7 @@ export default function Contracts() {
     const fetchClients = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/users/clients', {
+        const response = await fetch('http://192.168.200.15:5000/api/users/clients', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {
@@ -57,7 +57,7 @@ export default function Contracts() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/contracts', {
+      const response = await fetch('http://192.168.200.15:5000/api/contracts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

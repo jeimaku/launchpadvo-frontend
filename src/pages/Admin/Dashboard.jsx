@@ -30,9 +30,9 @@ export default function Dashboard() {
 
       // Fetch all data simultaneously
       const [paymentsRes, lpcRes, lpogRes] = await Promise.all([
-        fetch('http://localhost:5000/api/payments', { headers }),
-        fetch('http://localhost:5000/api/virtual-offices?branch=LPC', { headers }),
-        fetch('http://localhost:5000/api/virtual-offices?branch=LPOG', { headers })
+        fetch('http://192.168.200.15:5000/api/payments', { headers }),
+        fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', { headers }),
+        fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPOG', { headers })
       ]);
 
       if (paymentsRes.ok && lpcRes.ok && lpogRes.ok) {
@@ -152,7 +152,7 @@ export default function Dashboard() {
                 <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
                   <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-6">Revenue by Facility</h3>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1} debounce={50}>
                       <BarChart data={revenueByBranch} margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
@@ -168,7 +168,7 @@ export default function Dashboard() {
                 <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center">
                   <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-2 w-full text-left">Portfolio Health</h3>
                   <div className="h-48 w-full mt-4">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1} debounce={50}>
                       <PieChart>
                         <Pie data={clientStatusData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
                           {clientStatusData.map((entry, index) => (

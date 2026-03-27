@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Sidebar from '../../components/Sidebar'; 
 import EmailSidebar from '../../components/EmailSidebar'; 
-import NotificationBell from '../../components/NotificationBell'; // Added Import
+import NotificationBell from '../../components/NotificationBell'; 
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 import md5 from 'md5'; 
 
@@ -44,8 +44,8 @@ export default function EmailCenter() {
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
       const [logsResponse, inboxResponse] = await Promise.all([
-        fetch('http://localhost:5000/api/emails/logs', { headers }),
-        fetch('http://localhost:5000/api/emails/inbox', { headers })
+        fetch('http://192.168.200.15:5000/api/emails/logs', { headers }),
+        fetch('http://192.168.200.15:5000/api/emails/inbox', { headers })
       ]);
 
       if (logsResponse.ok && inboxResponse.ok) {
@@ -63,7 +63,7 @@ export default function EmailCenter() {
 
   useEffect(() => {
     fetchEmails();
-    const socket = io('http://localhost:5000');
+    const socket = io('http://192.168.200.15:5000');
     socket.on('incoming_email', () => {
       const currentRole = localStorage.getItem('userRole');
       if (['admin', 'manager', 'staff'].includes(currentRole)) {
@@ -87,7 +87,7 @@ export default function EmailCenter() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/emails/delete/${id}?table=${table}`, {
+      const response = await fetch(`http://192.168.200.15:5000/api/emails/delete/${id}?table=${table}`, {
         method: 'PUT', 
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
@@ -136,7 +136,8 @@ export default function EmailCenter() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=404`;
+    // UPDATED: Changed d=404 to d=mp (Mystery Person fallback)
+    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
   };
 
   const getFallbackAvatar = (email, name) => {

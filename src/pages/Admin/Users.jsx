@@ -27,7 +27,7 @@ export default function Users() {
         setIsLoading(true);
         try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/users', { 
+        const response = await fetch('http://192.168.200.15:5000/api/users', { 
             headers: { 'Authorization': `Bearer ${token}` } 
         });
 
@@ -56,7 +56,7 @@ export default function Users() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/users/${id}`, {
+      const response = await fetch(`http://192.168.200.15:5000/api/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -78,8 +78,8 @@ export default function Users() {
     try {
       const token = localStorage.getItem('token');
       const url = editingUserId 
-        ? `http://localhost:5000/api/users/${editingUserId}` 
-        : 'http://localhost:5000/api/users';
+        ? `http://192.168.200.15:5000/api/users/${editingUserId}` 
+        : 'http://192.168.200.15:5000/api/users';
         
       const method = editingUserId ? 'PUT' : 'POST';
 

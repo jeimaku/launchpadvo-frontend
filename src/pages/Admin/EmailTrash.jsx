@@ -8,8 +8,8 @@ import NotificationBell from '../../components/NotificationBell';
 import EmailViewModal from '../../components/EmailViewModal';
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 
-// Dynamic API URL for Local Network Access
-const API_URL = `http://${window.location.hostname}:5000`;
+// UPDATED: Hardcoded to your specific IP to match the rest of the application
+const API_URL = 'http://192.168.200.15:5000';
 
 export default function EmailTrash() {
   const [trashItems, setTrashItems] = useState([]);
@@ -159,7 +159,8 @@ export default function EmailTrash() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=404`;
+    // UPDATED: Changed d=404 to d=mp (Mystery Person fallback)
+    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
   };
 
   const getFallbackAvatar = (email, name) => {

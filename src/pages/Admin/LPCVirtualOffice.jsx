@@ -34,7 +34,7 @@ export default function LPCVirtualOffice() {
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/virtual-offices?branch=LPC', {
+      const response = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
       if (response.ok) {
@@ -109,7 +109,7 @@ export default function LPCVirtualOffice() {
     if (actionType === 'DELETE') {
       try {
         const token = localStorage.getItem('token');
-        await fetch(`http://localhost:5000/api/virtual-offices/${clientId}`, {
+        await fetch(`http://192.168.200.15:5000/api/virtual-offices/${clientId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -124,8 +124,8 @@ export default function LPCVirtualOffice() {
 
     const payload = { ...formData, package_tier: finalPackageTier, branch: 'LPC' };
     const url = actionType === 'EDIT' 
-      ? `http://localhost:5000/api/virtual-offices/${clientId}` 
-      : 'http://localhost:5000/api/virtual-offices';
+      ? `http://192.168.200.15:5000/api/virtual-offices/${clientId}` 
+      : 'http://192.168.200.15:5000/api/virtual-offices';
     const method = actionType === 'EDIT' ? 'PUT' : 'POST';
 
     try {
