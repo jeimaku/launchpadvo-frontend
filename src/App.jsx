@@ -19,7 +19,7 @@ function App() {
   // --- NEW: Global Socket Listener for Notifications ---
   useEffect(() => {
     // Connect to your Node.js backend
-    const socket = io('http://localhost:5000');
+    const socket = io('http://localhost:5018');
 
     // Listen for the event emitted by imapListener.js
     socket.on('incoming_email', () => {
