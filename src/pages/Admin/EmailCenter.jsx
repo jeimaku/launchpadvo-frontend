@@ -10,24 +10,24 @@ import md5 from 'md5';
 // Import modular components
 import EmailViewModal from '../../components/EmailViewModal'; 
 import ComposeEmailModal from '../../components/ComposeEmailModal'; 
+import AutomatedTemplatesModal from '../../components/AutomatedTemplatesModal'; // <-- IMPORT NEW MODAL
 
 export default function EmailCenter() {
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('inbox'); 
   const [showComposeModal, setShowComposeModal] = useState(false);
+  const [showAutoTemplatesModal, setShowAutoTemplatesModal] = useState(false); // <-- NEW STATE
   
   const [emailLogs, setEmailLogs] = useState([]);
   const [inboxEmails, setInboxEmails] = useState([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState(null); 
   
-  // Custom Modals
   const [deletePrompt, setDeletePrompt] = useState({ isOpen: false, id: null, table: null });
   const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false });
 
   const systemEmail = "lptest.renewal@gmail.com";
 
-  // Role Check for Notification Bell
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
@@ -136,7 +136,6 @@ export default function EmailCenter() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    // UPDATED: Changed d=404 to d=mp (Mystery Person fallback)
     return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
   };
 
@@ -161,12 +160,23 @@ export default function EmailCenter() {
           100% { opacity: 1; transform: scale(1) translateY(0); }
         }
         .animate-modal-pop { animation: modalPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        @keyframes modalFadeIn {
+          0% { opacity: 0; transform: scale(0.98) translateY(10px); }
+          100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .animate-modal-fade { animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       `}</style>
 
       <Sidebar />
 
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
-        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
+        
         <div className="mb-6 shrink-0 flex justify-between items-start">
           <div>
             <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
@@ -187,12 +197,24 @@ export default function EmailCenter() {
           />
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
+            
+            {/* Header Area for Content */}
             <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
                 {activeTab === 'inbox' && <><span className="w-4 h-4 rounded-full bg-blue-500 inline-block"></span> Inbox</>}
                 {activeTab === 'manual' && <><span className="w-4 h-4 rounded-full bg-indigo-500 inline-block"></span> Sent Emails</>}
                 {activeTab === 'automated' && <><span className="w-4 h-4 rounded-full bg-emerald-500 inline-block"></span> System Logs</>}
               </h2>
+
+              {/* NEW BUTTON FOR AUTOMATED TEMPLATES */}
+              {activeTab === 'automated' && (
+                 <button 
+                   onClick={() => setShowAutoTemplatesModal(true)} 
+                   className="px-5 py-2.5 bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-200 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 shadow-sm"
+                 >
+                   ⚙️ Select Auto Template
+                 </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -293,8 +315,7 @@ export default function EmailCenter() {
         </div>
       </main>
 
-      {/* --- CUSTOM DIALOGS WITH POP-IN ANIMATION --- */}
-
+      {/* --- CUSTOM DIALOGS --- */}
       {deletePrompt.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 text-center border border-slate-100 animate-modal-pop">
@@ -326,6 +347,14 @@ export default function EmailCenter() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* RENDER NEW MODAL HERE */}
+      {showAutoTemplatesModal && (
+        <AutomatedTemplatesModal 
+          onClose={() => setShowAutoTemplatesModal(false)}
+          onUpdateSuccess={(msg) => setAlertPrompt({ isOpen: true, message: msg, isError: false })}
+        />
       )}
 
       <EmailViewModal email={selectedEmail} onClose={() => setSelectedEmail(null)} formatExactDateTime={formatExactDateTime} systemEmail={systemEmail} />

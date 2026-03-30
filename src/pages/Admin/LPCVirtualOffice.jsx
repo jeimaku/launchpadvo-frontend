@@ -15,6 +15,14 @@ export default function LPCVirtualOffice() {
   const [filterDuration, setFilterDuration] = useState('All');
   const [filterRate, setFilterRate] = useState('All');
   const [filterTerms, setFilterTerms] = useState('All');
+
+  const [filterPackage, setFilterPackage] = useState('All');
+
+  // ==========================================
+  // NEW: PAGINATION STATES
+  // ==========================================
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Default 10 rows per page
   
   const [editingId, setEditingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ show: false, actionType: '', clientId: null });
@@ -55,6 +63,8 @@ export default function LPCVirtualOffice() {
   const uniqueRates = [...new Set(clients.map(c => Number(c.rate_per_month)))].filter(Boolean).sort((a,b) => a - b);
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
 
+  const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort();
+
   // ==========================================
   // 3. THE MASTER FILTER ENGINE
   // ==========================================
@@ -66,9 +76,29 @@ export default function LPCVirtualOffice() {
     const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
     const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
     const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
+    const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; // NEW check
 
-    return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms;
+    return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage;
   });
+
+  // ==========================================
+  // NEW: PAGINATION LOGIC
+  // ==========================================
+  // Auto-reset to page 1 if any filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage, itemsPerPage]);
+
+  const actualItemsPerPage = itemsPerPage === 'All' ? filteredClients.length : Number(itemsPerPage);
+  const totalPages = Math.ceil(filteredClients.length / (actualItemsPerPage || 1));
+  const indexOfLastItem = currentPage * actualItemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - actualItemsPerPage;
+  const currentItems = filteredClients.slice(indexOfFirstItem, indexOfLastItem);
+
+  const handlePageChange = (direction) => {
+    if (direction === 'prev' && currentPage > 1) setCurrentPage(currentPage - 1);
+    if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
 
   // ==========================================
   // 4. CRUD ACTIONS
@@ -197,7 +227,7 @@ export default function LPCVirtualOffice() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
               <select 
@@ -209,6 +239,19 @@ export default function LPCVirtualOffice() {
                 <option value="Pending Renewal">Pending Renewal</option>
                 <option value="Expired">Expired</option>
                 <option value="Terminated">Terminated</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Package Tier</label>
+              <select 
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
+                value={filterPackage} onChange={(e) => setFilterPackage(e.target.value)}
+              >
+                <option value="All">All Packages</option>
+                {uniquePackages.map(pkg => (
+                  <option key={pkg} value={pkg}>{pkg}</option>
+                ))}
               </select>
             </div>
 
@@ -270,8 +313,8 @@ export default function LPCVirtualOffice() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredClients.length > 0 ? (
-                  filteredClients.map(client => (
+                {currentItems.length > 0 ? (
+                  currentItems.map(client => (
                     <tr key={client.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-800">{client.company_name}</p>
@@ -317,6 +360,50 @@ export default function LPCVirtualOffice() {
                 )}
               </tbody>
             </table>
+          </div>
+          {/* ========================================== */}
+          {/* PAGINATION FOOTER CONTROLS                 */}
+          {/* ========================================== */}
+          <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
+            <div className="flex items-center gap-4 mb-4 md:mb-0">
+              <span className="text-sm text-slate-500">
+                Showing <span className="font-bold text-slate-700">{filteredClients.length === 0 ? 0 : indexOfFirstItem + 1}</span> to <span className="font-bold text-slate-700">{Math.min(indexOfLastItem, filteredClients.length)}</span> of <span className="font-bold text-slate-700">{filteredClients.length}</span> entries
+              </span>
+              <div className="flex items-center gap-2 border-l pl-4 border-slate-200">
+                <label className="text-sm text-slate-500">Rows per page:</label>
+                <select 
+                  className="rounded border border-slate-300 text-sm p-1"
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(e.target.value)}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="All">All</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => handlePageChange('prev')}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === 1 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Previous
+              </button>
+              <span className="text-sm font-semibold text-slate-700 px-2">
+                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+              </span>
+              <button 
+                onClick={() => handlePageChange('next')}
+                disabled={currentPage === totalPages || totalPages === 0}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === totalPages || totalPages === 0 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>

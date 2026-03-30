@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Sidebar from '../../components/Sidebar';
-import NotificationBell from '../../components/NotificationBell'; // Added Import
+import NotificationBell from '../../components/NotificationBell';
 
 export default function LPOGVirtualOffice() {
   const [clients, setClients] = useState([]);
@@ -15,7 +15,14 @@ export default function LPOGVirtualOffice() {
   const [filterDuration, setFilterDuration] = useState('All');
   const [filterRate, setFilterRate] = useState('All');
   const [filterTerms, setFilterTerms] = useState('All');
+  const [filterPackage, setFilterPackage] = useState('All'); // NEW: Package Tier Filter
   
+  // ==========================================
+  // NEW: PAGINATION STATES
+  // ==========================================
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10 rows
+
   const [editingId, setEditingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ show: false, actionType: '', clientId: null });
 
@@ -54,21 +61,44 @@ export default function LPOGVirtualOffice() {
   const uniqueDurations = [...new Set(clients.map(c => c.duration))].filter(Boolean).sort();
   const uniqueRates = [...new Set(clients.map(c => Number(c.rate_per_month)))].filter(Boolean).sort((a,b) => a - b);
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
+  const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort(); // NEW
 
   // ==========================================
   // 3. THE MASTER FILTER ENGINE
   // ==========================================
-  const filteredClients = clients.filter(client => {
-    const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (client.contact_person_1 && client.contact_person_1.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesStatus = filterStatus === 'All' || client.contract_status === filterStatus;
-    const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
-    const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
-    const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
+  const filteredClients = useMemo(() => {
+    return clients.filter(client => {
+      const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            (client.contact_person_1 && client.contact_person_1.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesStatus = filterStatus === 'All' || client.contract_status === filterStatus;
+      const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
+      const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
+      const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
+      const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; // NEW check
 
-    return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms;
-  });
+      return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage;
+    });
+  }, [clients, searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage]);
+
+  // ==========================================
+  // NEW: PAGINATION LOGIC
+  // ==========================================
+  // Auto-reset to page 1 if any filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage, itemsPerPage]);
+
+  const actualItemsPerPage = itemsPerPage === 'All' ? filteredClients.length : Number(itemsPerPage);
+  const totalPages = Math.ceil(filteredClients.length / (actualItemsPerPage || 1));
+  const indexOfLastItem = currentPage * actualItemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - actualItemsPerPage;
+  const currentItems = filteredClients.slice(indexOfFirstItem, indexOfLastItem);
+
+  const handlePageChange = (direction) => {
+    if (direction === 'prev' && currentPage > 1) setCurrentPage(currentPage - 1);
+    if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
 
   // ==========================================
   // 4. CRUD ACTIONS
@@ -164,9 +194,8 @@ export default function LPOGVirtualOffice() {
     <div className="flex min-h-screen bg-slate-50 font-sans">
       <Sidebar />
 
-      <div className="flex-1 p-8 overflow-hidden">
-        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
-        <header className="mb-8 flex items-center justify-between">
+      <div className="flex-1 p-8 overflow-hidden flex flex-col h-screen">
+        <header className="mb-6 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPOG Virtual Office</h2>
             <p className="text-slate-500 mt-1">Manage all clients stationed at the One Griffinstone branch.</p>
@@ -185,7 +214,7 @@ export default function LPOGVirtualOffice() {
         {/* ========================================== */}
         {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
         {/* ========================================== */}
-        <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
+        <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4 shrink-0">
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
             <input 
@@ -197,13 +226,10 @@ export default function LPOGVirtualOffice() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-              >
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="All">All Statuses</option>
                 <option value="Active">Active</option>
                 <option value="Pending Renewal">Pending Renewal</option>
@@ -212,42 +238,38 @@ export default function LPOGVirtualOffice() {
               </select>
             </div>
 
+            {/* NEW: Package Tier Filter */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Package Tier</label>
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterPackage} onChange={(e) => setFilterPackage(e.target.value)}>
+                <option value="All">All Packages</option>
+                {uniquePackages.map(pkg => (
+                  <option key={pkg} value={pkg}>{pkg}</option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Duration</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)}
-              >
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)}>
                 <option value="All">All Durations</option>
-                {uniqueDurations.map(dur => (
-                  <option key={dur} value={dur}>{dur}</option>
-                ))}
+                {uniqueDurations.map(dur => <option key={dur} value={dur}>{dur}</option>)}
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Agreed Rate</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterRate} onChange={(e) => setFilterRate(e.target.value)}
-              >
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterRate} onChange={(e) => setFilterRate(e.target.value)}>
                 <option value="All">All Rates</option>
-                {uniqueRates.map(rate => (
-                  <option key={rate} value={rate}>{formatCurrency(rate)}</option>
-                ))}
+                {uniqueRates.map(rate => <option key={rate} value={rate}>{formatCurrency(rate)}</option>)}
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Terms</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterTerms} onChange={(e) => setFilterTerms(e.target.value)}
-              >
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterTerms} onChange={(e) => setFilterTerms(e.target.value)}>
                 <option value="All">All Terms</option>
-                {uniqueTerms.map(term => (
-                  <option key={term} value={term}>{term}</option>
-                ))}
+                {uniqueTerms.map(term => <option key={term} value={term}>{term}</option>)}
               </select>
             </div>
           </div>
@@ -256,13 +278,13 @@ export default function LPOGVirtualOffice() {
         {/* ========================================== */}
         {/* THE DATA TABLE                             */}
         {/* ========================================== */}
-        <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="rounded-xl bg-white shadow-sm border border-slate-100 flex flex-col flex-1 overflow-hidden">
+          <div className="overflow-x-auto flex-1">
             <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Company & Contacts</th>
-                  <th className="px-6 py-4 font-semibold">Emails</th>
+                  <th className="px-6 py-4 font-semibold">Package & Emails</th>
                   <th className="px-6 py-4 font-semibold">Duration & Dates</th>
                   <th className="px-6 py-4 font-semibold">Rate & Terms</th>
                   <th className="px-6 py-4 font-semibold">Status</th>
@@ -270,15 +292,16 @@ export default function LPOGVirtualOffice() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredClients.length > 0 ? (
-                  filteredClients.map(client => (
+                {currentItems.length > 0 ? (
+                  currentItems.map(client => (
                     <tr key={client.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-800">{client.company_name}</p>
                         {client.contact_person_1 && <p className="text-xs text-slate-500">1: {client.contact_person_1}</p>}
                       </td>
-                      <td className="px-6 py-4 text-xs text-blue-500">
-                        <p>{client.email_1 || '-'}</p>
+                      <td className="px-6 py-4">
+                        <span className="inline-block px-2 py-1 mb-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded">{client.package_tier}</span>
+                        <p className="text-xs text-slate-500">{client.email_1 || '-'}</p>
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-semibold text-slate-700">{client.duration}</p>
@@ -317,6 +340,51 @@ export default function LPOGVirtualOffice() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* ========================================== */}
+          {/* PAGINATION FOOTER CONTROLS                 */}
+          {/* ========================================== */}
+          <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
+            <div className="flex items-center gap-4 mb-4 md:mb-0">
+              <span className="text-sm text-slate-500">
+                Showing <span className="font-bold text-slate-700">{filteredClients.length === 0 ? 0 : indexOfFirstItem + 1}</span> to <span className="font-bold text-slate-700">{Math.min(indexOfLastItem, filteredClients.length)}</span> of <span className="font-bold text-slate-700">{filteredClients.length}</span> entries
+              </span>
+              <div className="flex items-center gap-2 border-l pl-4 border-slate-200">
+                <label className="text-sm text-slate-500">Rows per page:</label>
+                <select 
+                  className="rounded border border-slate-300 text-sm p-1"
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(e.target.value)}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="All">All</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => handlePageChange('prev')}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === 1 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Previous
+              </button>
+              <span className="text-sm font-semibold text-slate-700 px-2">
+                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+              </span>
+              <button 
+                onClick={() => handlePageChange('next')}
+                disabled={currentPage === totalPages || totalPages === 0}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === totalPages || totalPages === 0 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>

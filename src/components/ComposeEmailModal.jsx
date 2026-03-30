@@ -1,24 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const SYSTEM_TEMPLATE = {
-  id: 'system-automated-renewal',
-  name: 'System Default: Automated Renewal',
-  subject: 'Virtual Office Subscription Renewal Notice',
-  isSystem: true,
-  attachments: [],
-  body: `Greetings, [Client Name]!
-
-We hope this email finds you well.
-
-This is a formal notification regarding your Virtual Office subscription for [Company Name]. Our records indicate that your current subscription is scheduled to expire in [X] days (on [Exact Expiry Date]).
-
-To continue accessing the services and features of your Virtual Office, please renew your subscription at your earliest convenience. Maintaining an active subscription is vital for the continuity of your business operations.
-
-Thank you for choosing Launchpad as your business partner.
-
-Best Regards,
-Launchpad Management Team`
-};
+const API_URL = `http://${window.location.hostname}:5000`;
 
 export default function ComposeEmailModal({ onClose, onSendSuccess }) {
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
@@ -26,12 +8,28 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
   const [isSending, setIsSending] = useState(false);
   const [availableTemplates, setAvailableTemplates] = useState([]);
   
-  // Controls whether the user is typing or viewing the result
-  const [viewMode, setViewMode] = useState('edit'); // 'edit' | 'preview'
+  const [viewMode, setViewMode] = useState('edit'); 
 
+  // --- NEW: FETCH TEMPLATES FROM DATABASE ---
   useEffect(() => {
-    const userTemplates = JSON.parse(localStorage.getItem('email_templates')) || [];
-    setAvailableTemplates([SYSTEM_TEMPLATE, ...userTemplates]);
+    const fetchManualTemplates = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/api/emails/templates`, {
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          // Filter out ONLY manual templates
+          const manualTemplates = data.filter(t => t.template_type === 'manual');
+          setAvailableTemplates(manualTemplates);
+        }
+      } catch (error) {
+        console.error("Error fetching manual templates:", error);
+      }
+    };
+    
+    fetchManualTemplates();
   }, []);
 
   const dataURLtoFile = (dataurl, filename, mimeType) => {
@@ -47,8 +45,6 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
 
     const template = availableTemplates.find(t => t.id === templateId);
     if (template) {
-      
-      // Safely clean up any <br /> tags if loading older HTML-saved templates
       let parsedBody = template.body ? template.body.replace(/<br \/>/g, '\n') : '';
 
       setComposeData(prev => ({ 
@@ -57,12 +53,13 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
         body: parsedBody
       }));
       
-      const reconstructedFiles = template.attachments.map(att => 
+      const parsedAttachments = typeof template.attachments === 'string' ? JSON.parse(template.attachments) : (template.attachments || []);
+      const reconstructedFiles = parsedAttachments.map(att => 
         dataURLtoFile(att.base64, att.name, att.type)
       );
       
       setFiles(prev => [...prev, ...reconstructedFiles]);
-      setViewMode('edit'); // Reset to edit view when loading a template
+      setViewMode('edit'); 
     }
   };
 
@@ -85,13 +82,12 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
       formData.append('to', composeData.to);
       formData.append('subject', composeData.subject);
       
-      // Safely wrap line breaks in HTML for the backend to preserve formatting
       let finalBody = composeData.body.replace(/\n/g, '<br />');
       formData.append('body', finalBody);
       
       files.forEach((file) => formData.append('attachments', file));
 
-      const response = await fetch('http://192.168.200.15:5000/api/emails/send', {
+      const response = await fetch(`${API_URL}/api/emails/send`, {
         method: 'POST',
         headers: { 'Authorization': token ? `Bearer ${token}` : '' },
         body: formData 
@@ -143,10 +139,8 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
 
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-6" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
         
-        {/* Modal Container */}
         <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] animate-modal-fade overflow-hidden">
           
-          {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 p-6 bg-slate-50/80 shrink-0">
             <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
               <span className="text-3xl">✉️</span> Compose Email
@@ -156,22 +150,25 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
             </button>
           </div>
 
-          {/* Scrollable Form Body */}
           <div className="overflow-y-auto custom-scrollbar p-6 md:p-8 flex-1 bg-white">
             
-            {/* Template Loader */}
-            <div className="mb-8 bg-slate-50 p-5 rounded-xl border border-slate-200 flex items-center gap-4">
-              <span className="text-3xl">📋</span>
-              <div className="flex-1">
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Load Template (Optional)</label>
-                <select onChange={handleTemplateSelect} defaultValue="" className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-base font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#d2f34c] shadow-sm cursor-pointer transition-shadow">
-                  <option value="" disabled>Select a template to auto-fill...</option>
-                  {availableTemplates.map(t => (
-                    <option key={t.id} value={t.id}>{t.name} ({t.attachments.length} files)</option>
-                  ))}
-                </select>
+            {availableTemplates.length > 0 && (
+              <div className="mb-8 bg-blue-50/50 p-5 rounded-xl border border-blue-100 flex items-center gap-4">
+                <span className="text-3xl">📋</span>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-blue-800 uppercase tracking-widest mb-2">Load Pre-saved Template (Optional)</label>
+                  <select onChange={handleTemplateSelect} defaultValue="" className="w-full bg-white border border-blue-200 rounded-lg px-4 py-2.5 text-base font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm cursor-pointer transition-shadow">
+                    <option value="" disabled>Select a template to auto-fill...</option>
+                    {availableTemplates.map(t => {
+                      const fileCount = (typeof t.attachments === 'string' ? JSON.parse(t.attachments) : (t.attachments || [])).length;
+                      return (
+                        <option key={t.id} value={t.id}>{t.name} ({fileCount} files)</option>
+                      );
+                    })}
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
 
             <form id="composeForm" onSubmit={handleSendEmail} className="space-y-6">
               
@@ -188,15 +185,12 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
                 </div>
               </div>
               
-              {/* Message Body Block */}
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 
-                {/* Formatting Toolbar / Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border-b border-slate-200 p-3 gap-3">
                   <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-2 hidden sm:block">Message Body</label>
                   
                   <div className="flex items-center gap-4 w-full sm:w-auto overflow-x-auto">
-                    {/* Editor/Preview Segmented Toggle */}
                     <div className="flex p-1 bg-slate-200/70 rounded-lg shadow-inner shrink-0">
                       <button type="button" onClick={() => setViewMode('edit')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'edit' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                         ✍️ Edit
@@ -220,14 +214,12 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
                       value={composeData.body} onChange={(e) => setComposeData({...composeData, body: e.target.value})} placeholder="Write your message here..." />
                   ) : (
                     <div className="w-full min-h-[14rem] max-h-[22rem] rounded-xl border border-slate-300 bg-white px-6 py-5 overflow-y-auto custom-scrollbar prose max-w-none text-slate-800 shadow-inner">
-                      {/* Previews Standard Text exactly how it will look via BR tags */}
                       <div dangerouslySetInnerHTML={{ __html: composeData.body.replace(/\n/g, '<br />') || '<p class="text-slate-400 italic">No content to preview yet...</p>' }} />
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Attachments Section */}
               <div className="mt-8">
                 <label className="mb-2 block text-xs font-bold text-slate-600 uppercase tracking-widest">Attachments</label>
                 <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-8 relative hover:bg-[#d2f34c]/5 hover:border-[#d2f34c] transition-colors text-center cursor-pointer group">
@@ -248,7 +240,6 @@ export default function ComposeEmailModal({ onClose, onSendSuccess }) {
             </form>
           </div>
 
-          {/* Footer Action Buttons */}
           <div className="border-t border-slate-100 p-6 bg-slate-50/80 shrink-0 flex justify-end gap-4">
             <button type="button" onClick={onClose} className="rounded-xl px-8 py-3 text-base font-bold text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors">
               Cancel

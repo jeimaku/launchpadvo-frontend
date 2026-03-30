@@ -16,6 +16,14 @@ export default function Payments() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterMode, setFilterMode] = useState('All');
+  const [filterMaker, setFilterMaker] = useState('All'); // NEW: Filter by who recorded it
+
+  // ==========================================
+  // NEW: PAGINATION STATES
+  // ==========================================
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10 rows
+
   const [confirmAction, setConfirmAction] = useState({ show: false, type: '', paymentId: null });
   
   // Modals
@@ -69,14 +77,40 @@ export default function Payments() {
   const totalVerified = payments.filter(p => p.status === 'Verified').reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalVoided = payments.filter(p => p.status === 'Voided').reduce((sum, p) => sum + Number(p.amount_paid), 0);
 
-  const uniqueModes = [...new Set(payments.map(p => p.mode_of_payment))].filter(Boolean);
+  // ==========================================
+  // DYNAMIC DROPDOWNS & MASTER FILTER
+  // ==========================================
+  const uniqueModes = [...new Set(payments.map(p => p.mode_of_payment))].filter(Boolean).sort();
+  const uniqueMakers = [...new Set(payments.map(p => p.recorded_by_name))].filter(Boolean).sort(); // NEW
+
   const filteredPayments = payments.filter(payment => {
     const matchesSearch = payment.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (payment.reference_number && payment.reference_number.toLowerCase().includes(searchTerm.toLowerCase()));
+    
     const matchesStatus = filterStatus === 'All' || payment.status === filterStatus;
     const matchesMode = filterMode === 'All' || payment.mode_of_payment === filterMode;
-    return matchesSearch && matchesStatus && matchesMode;
+    const matchesMaker = filterMaker === 'All' || payment.recorded_by_name === filterMaker; // NEW
+
+    return matchesSearch && matchesStatus && matchesMode && matchesMaker;
   });
+
+  // ==========================================
+  // PAGINATION LOGIC
+  // ==========================================
+  useEffect(() => {
+    setCurrentPage(1); // Auto-reset to page 1 if filters change
+  }, [searchTerm, filterStatus, filterMode, filterMaker, itemsPerPage]);
+
+  const actualItemsPerPage = itemsPerPage === 'All' ? filteredPayments.length : Number(itemsPerPage);
+  const totalPages = Math.ceil(filteredPayments.length / (actualItemsPerPage || 1));
+  const indexOfLastItem = currentPage * actualItemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - actualItemsPerPage;
+  const currentItems = filteredPayments.slice(indexOfFirstItem, indexOfLastItem);
+
+  const handlePageChange = (direction) => {
+    if (direction === 'prev' && currentPage > 1) setCurrentPage(currentPage - 1);
+    if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
 
   // ==========================================
   // 📸 DOWNLOAD LOGIC (PNG & SECURE PDF)
@@ -245,28 +279,47 @@ export default function Payments() {
           </div>
         </div>
 
-        {/* SEARCH & FILTER BAR */}
-        <div className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[250px]">
+        {/* ========================================== */}
+        {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
+        {/* ========================================== */}
+        <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4 shrink-0">
+          <div className="w-full">
+            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
             <input 
-              type="text" placeholder="Search Company or Reference #..." 
-              className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm focus:border-[#b8d839] focus:ring-1 focus:ring-[#b8d839]"
-              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              type="text" 
+              placeholder="🔍 Search by Company Name or Reference #..." 
+              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-[#b8d839] focus:ring-1 focus:ring-[#b8d839]"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="w-48">
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="All">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Verified">Verified</option>
-              <option value="Voided">Voided</option>
-            </select>
-          </div>
-          <div className="w-48">
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50" value={filterMode} onChange={(e) => setFilterMode(e.target.value)}>
-              <option value="All">All Modes</option>
-              {uniqueModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
-            </select>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Status</label>
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option value="All">All Statuses</option>
+                <option value="Pending">Pending</option>
+                <option value="Verified">Verified</option>
+                <option value="Voided">Voided</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Mode of Payment</label>
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterMode} onChange={(e) => setFilterMode(e.target.value)}>
+                <option value="All">All Modes</option>
+                {uniqueModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Encoded By</label>
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterMaker} onChange={(e) => setFilterMaker(e.target.value)}>
+                <option value="All">All Staff</option>
+                {uniqueMakers.map(maker => <option key={maker} value={maker}>{maker}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -285,8 +338,8 @@ export default function Payments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredPayments.length > 0 ? (
-                  filteredPayments.map(payment => (
+                    {currentItems.length > 0 ? (
+                      currentItems.map(payment => (
                     <tr key={payment.id} className={`transition-colors ${payment.status === 'Voided' ? 'bg-slate-50/50' : 'hover:bg-slate-50'}`}>
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-700">{new Date(payment.payment_date).toLocaleDateString()}</p>
@@ -348,6 +401,50 @@ export default function Payments() {
                 )}
               </tbody>
             </table>
+          </div>
+          {/* ========================================== */}
+          {/* PAGINATION FOOTER CONTROLS                 */}
+          {/* ========================================== */}
+          <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
+            <div className="flex items-center gap-4 mb-4 md:mb-0">
+              <span className="text-sm text-slate-500">
+                Showing <span className="font-bold text-slate-700">{filteredPayments.length === 0 ? 0 : indexOfFirstItem + 1}</span> to <span className="font-bold text-slate-700">{Math.min(indexOfLastItem, filteredPayments.length)}</span> of <span className="font-bold text-slate-700">{filteredPayments.length}</span> entries
+              </span>
+              <div className="flex items-center gap-2 border-l pl-4 border-slate-200">
+                <label className="text-sm text-slate-500">Rows per page:</label>
+                <select 
+                  className="rounded border border-slate-300 text-sm p-1"
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(e.target.value)}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="All">All</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => handlePageChange('prev')}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === 1 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Previous
+              </button>
+              <span className="text-sm font-semibold text-slate-700 px-2">
+                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+              </span>
+              <button 
+                onClick={() => handlePageChange('next')}
+                disabled={currentPage === totalPages || totalPages === 0}
+                className={`px-3 py-1 text-sm rounded border ${currentPage === totalPages || totalPages === 0 ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors'}`}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>

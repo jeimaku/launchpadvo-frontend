@@ -4,23 +4,24 @@ import Sidebar from '../../components/Sidebar';
 import EmailSidebar from '../../components/EmailSidebar';
 import ComposeEmailModal from '../../components/ComposeEmailModal';
 import NotificationBell from '../../components/NotificationBell'; 
-import launchpadLogo from '../../assets/launchpad-logo.png'; 
+// UPDATED IMPORT
+import launchpadLogo from '../../assets/launchpad-logo-dark.png'; 
 
-// Dynamic API URL for Local Network Access
 const API_URL = `http://${window.location.hostname}:5000`;
 
-// System Default Template
-const SYSTEM_TEMPLATE = {
+const SYSTEM_DEFAULT = {
   id: 'system-automated-renewal',
   name: 'System Default: Automated Renewal',
   subject: 'Virtual Office Subscription Renewal Notice',
   isSystem: true,
+  templateType: 'automated',
+  triggerEvent: 'subscription_renewal',
   isHtml: true, 
   attachments: [],
   body: `
     <div style="font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
-      <div style="background-color: #fefce8; text-align: center; padding: 20px; border-bottom: 3px solid #d2f34c;">
-        <img src="${launchpadLogo}" alt="Launchpad Business Logo" style="max-width: 250px;" />
+      <div style="background-color: #1e293b; text-align: center; border-bottom: 3px solid #d2f34c;">
+        <img src="${launchpadLogo}" alt="Launchpad Business Logo" style="width: 100%; max-width: 600px; display: block;" />
       </div>
       <div style="padding: 30px; color: #333; line-height: 1.6;">
         <h2>Greetings, [Client Name]!</h2>
@@ -41,7 +42,6 @@ export default function EmailTemplates() {
   const [showComposeModal, setShowComposeModal] = useState(false);
   
   const [emailCounts, setEmailCounts] = useState({ inbox: 0, manual: 0, automated: 0 });
-
   const [templateToDelete, setTemplateToDelete] = useState(null);
   const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false }); 
   
@@ -50,55 +50,66 @@ export default function EmailTemplates() {
     name: '',
     subject: '',
     body: '',
-    isHtml: false, 
+    templateType: 'manual', 
+    isHtml: false,
     existingAttachments: [],
     newFiles: []
   });
 
   const [previewTemplate, setPreviewTemplate] = useState(null);
+  const [isFormPreview, setIsFormPreview] = useState(false);
 
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
+
+  const fetchTemplates = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/emails/templates`, {
+        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const formattedData = data.map(t => ({
+          ...t,
+          templateType: t.template_type,
+          triggerEvent: t.trigger_event,
+          isHtml: t.is_html === 1,
+          attachments: typeof t.attachments === 'string' ? JSON.parse(t.attachments) : (t.attachments || [])
+        }));
+        setSavedTemplates(formattedData);
+      }
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+    }
+  };
 
   const fetchEmailCounts = async () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
-
       const [logsResponse, inboxResponse] = await Promise.all([
         fetch(`${API_URL}/api/emails/logs`, { headers }),
         fetch(`${API_URL}/api/emails/inbox`, { headers })
       ]);
-
       if (logsResponse.ok && inboxResponse.ok) {
         const logsData = await logsResponse.json();
         const inboxData = await inboxResponse.json();
-        
         setEmailCounts({
           inbox: inboxData.length,
           manual: logsData.filter(log => log.type === 'Manual').length,
           automated: logsData.filter(log => log.type === 'Automated').length
         });
       }
-    } catch (error) {
-      console.error('Error fetching email counts:', error);
-    }
+    } catch (error) { console.error('Error fetching email counts:', error); }
   };
 
   useEffect(() => {
-    const existing = JSON.parse(localStorage.getItem('email_templates')) || [];
-    setSavedTemplates(existing);
-    
+    fetchTemplates();
     fetchEmailCounts(); 
-
     const socket = io(API_URL);
-    socket.on('incoming_email', () => {
-      fetchEmailCounts();
-    });
-
-    return () => {
-      socket.disconnect();
-    };
+    socket.on('incoming_email', () => fetchEmailCounts());
+    return () => socket.disconnect();
   }, []);
 
   const fileToBase64 = (file) => {
@@ -111,7 +122,8 @@ export default function EmailTemplates() {
   };
 
   const resetForm = () => {
-    setFormData({ id: null, name: '', subject: '', body: '', isHtml: false, existingAttachments: [], newFiles: [] });
+    setFormData({ id: null, name: '', subject: '', body: '', templateType: 'manual', isHtml: false, existingAttachments: [], newFiles: [] });
+    setIsFormPreview(false);
   };
 
   const getEmailSnippet = (htmlString) => {
@@ -127,10 +139,12 @@ export default function EmailTemplates() {
       name: template.name,
       subject: template.subject,
       body: template.body,
-      isHtml: template.isHtml !== undefined ? template.isHtml : true,
+      templateType: template.templateType || 'manual',
+      isHtml: template.isHtml !== undefined ? template.isHtml : false,
       existingAttachments: template.attachments || [],
       newFiles: []
     });
+    setIsFormPreview(false);
     setCurrentView('form');
   };
 
@@ -141,55 +155,68 @@ export default function EmailTemplates() {
 
   const handleSaveTemplate = async (e) => {
     e.preventDefault();
-    
+
     const fileDataPromises = formData.newFiles.map(async (file) => ({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      base64: await fileToBase64(file)
+      name: file.name, type: file.type, size: file.size, base64: await fileToBase64(file)
     }));
     const processedNewFiles = await Promise.all(fileDataPromises);
-    
     const finalAttachments = [...formData.existingAttachments, ...processedNewFiles];
 
-    const newTemplate = {
+    const payload = {
       id: formData.id || Date.now().toString(), 
       name: formData.name,
       subject: formData.subject,
       body: formData.body,
+      templateType: formData.templateType,
+      triggerEvent: formData.templateType === 'automated' ? 'subscription_renewal' : '', 
       isHtml: formData.isHtml,
       attachments: finalAttachments
     };
 
-    let updatedTemplates;
-    if (formData.id) {
-      updatedTemplates = savedTemplates.map(t => t.id === formData.id ? newTemplate : t);
-    } else {
-      updatedTemplates = [...savedTemplates, newTemplate];
-    }
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/emails/templates`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(payload)
+      });
 
-    localStorage.setItem('email_templates', JSON.stringify(updatedTemplates));
-    setSavedTemplates(updatedTemplates);
-    resetForm();
-    setCurrentView('library');
-    setAlertPrompt({ isOpen: true, message: "Template saved successfully!", isError: false });
-  };
-
-  const confirmDelete = (id) => {
-    setTemplateToDelete(id);
-  };
-
-  const executeDelete = () => {
-    if (templateToDelete) {
-      const updated = savedTemplates.filter(t => t.id !== templateToDelete);
-      localStorage.setItem('email_templates', JSON.stringify(updated));
-      setSavedTemplates(updated);
-      setTemplateToDelete(null);
-      setAlertPrompt({ isOpen: true, message: "Template deleted.", isError: false });
+      if (response.ok) {
+        await fetchTemplates(); 
+        resetForm();
+        setCurrentView('library');
+        setAlertPrompt({ isOpen: true, message: "Template saved successfully!", isError: false });
+      } else {
+        throw new Error('Failed to save template to database.');
+      }
+    } catch (error) {
+      setAlertPrompt({ isOpen: true, message: error.message, isError: true });
     }
   };
 
-  const allTemplates = [SYSTEM_TEMPLATE, ...savedTemplates];
+  const confirmDelete = (id) => setTemplateToDelete(id);
+
+  const executeDelete = async () => {
+    if (!templateToDelete) return;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/emails/templates/${templateToDelete}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+      });
+
+      if (response.ok) {
+        await fetchTemplates(); 
+        setTemplateToDelete(null);
+        setAlertPrompt({ isOpen: true, message: "Template deleted.", isError: false });
+      }
+    } catch (error) { console.error("Delete error:", error); }
+  };
+
+  const allTemplates = [SYSTEM_DEFAULT, ...savedTemplates];
 
   const renderAttachmentPreview = (att, index) => {
     const isImage = att.type?.startsWith('image/');
@@ -197,15 +224,10 @@ export default function EmailTemplates() {
     const isPDF = att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf');
     
     let visualContent;
-    if (isImage) {
-      visualContent = <img src={att.base64} alt="thumbnail" className="w-full h-full object-cover" />;
-    } else if (isPDF) {
-      visualContent = <div className="text-4xl text-red-500">📄</div>;
-    } else if (isVideo) {
-      visualContent = <video src={att.base64} className="w-full h-full object-cover" />;
-    } else {
-      visualContent = <div className="text-4xl text-blue-500">📝</div>;
-    }
+    if (isImage) visualContent = <img src={att.base64} alt="thumbnail" className="w-full h-full object-cover" />;
+    else if (isPDF) visualContent = <div className="text-4xl text-red-500">📄</div>;
+    else if (isVideo) visualContent = <video src={att.base64} className="w-full h-full object-cover" />;
+    else visualContent = <div className="text-4xl text-blue-500">📝</div>;
 
     return (
       <div key={index} className="flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -226,7 +248,8 @@ export default function EmailTemplates() {
 
   const renderSafePreviewBody = (htmlContent) => {
     if (!htmlContent) return '';
-    return htmlContent.replace(/src="([^"]*(launchpad-logo|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
+    // UPDATE PREVIEW RENDERER TO CATCH BOTH FILE NAMES
+    return htmlContent.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
   };
 
   return (
@@ -238,7 +261,6 @@ export default function EmailTemplates() {
           100% { opacity: 1; transform: scale(1) translateY(0); }
         }
         .animate-modal-pop { animation: modalPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
@@ -291,20 +313,24 @@ export default function EmailTemplates() {
                     <div key={t.id} className={`bg-white border ${t.isSystem ? 'border-[#d2f34c]/60 bg-[#d2f34c]/5' : 'border-slate-200 hover:border-slate-300 hover:shadow-md'} rounded-2xl p-6 shadow-sm transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6 group`}>
                       
                       <div className="flex items-start gap-5 flex-1 min-w-0 w-full">
-                        <div className={`h-14 w-14 shrink-0 rounded-xl flex items-center justify-center text-2xl shadow-sm ${t.isSystem ? 'bg-[#d2f34c] text-slate-900' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-                          {t.isSystem ? '🤖' : '📝'}
+                        <div className={`h-14 w-14 shrink-0 rounded-xl flex items-center justify-center text-2xl shadow-sm ${t.templateType === 'automated' ? 'bg-purple-100 text-purple-600 border border-purple-200' : 'bg-blue-50 text-blue-600 border border-blue-100'}`}>
+                          {t.isSystem ? '🤖' : (t.templateType === 'automated' ? '⚡' : '📝')}
                         </div>
                         
                         <div className="flex flex-col flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-1">
                             <h5 className="font-bold text-slate-900 text-xl truncate">{t.name}</h5>
-                            {t.isSystem && (
-                              <span className="shrink-0 bg-[#d2f34c] text-slate-900 text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border border-[#b8d839]">
-                                System Default
-                              </span>
+                            {t.templateType === 'automated' ? (
+                               <span className={`shrink-0 text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border ${t.isSystem ? 'bg-[#d2f34c] text-slate-900 border-[#b8d839]' : 'bg-purple-100 text-purple-700 border-purple-200'}`}>
+                                 Automated Renewal
+                               </span>
+                            ) : (
+                               <span className="shrink-0 bg-blue-50 text-blue-700 text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border border-blue-200">
+                                 Manual Use
+                               </span>
                             )}
                           </div>
-                          <p className="text-base text-slate-600 font-medium truncate w-full">
+                          <p className="text-base text-slate-600 font-medium truncate w-full mt-1">
                             <span className="font-bold text-slate-800">Subject:</span> {t.subject}
                             <span className="text-slate-300 font-normal mx-2">|</span>
                             <span className="text-slate-500 italic">{getEmailSnippet(t.body)}</span>
@@ -365,8 +391,28 @@ export default function EmailTemplates() {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-slate-50 rounded-xl border border-slate-200">
+                      <div>
+                        <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Template Usage</label>
+                        <select className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#d2f34c]" 
+                          value={formData.templateType} onChange={(e) => setFormData({...formData, templateType: e.target.value})}>
+                          <option value="manual">Manual Use (Compose Email)</option>
+                          <option value="automated">Automated (System Triggered)</option>
+                        </select>
+                      </div>
+
+                      {formData.templateType === 'automated' && (
+                        <div>
+                          <label className="mb-2 block text-sm font-bold text-purple-700 uppercase tracking-widest">System Trigger</label>
+                          <div className="w-full rounded-xl border-2 border-purple-300 bg-purple-50 px-4 py-3 text-base font-medium text-purple-900 shadow-sm cursor-not-allowed">
+                            ✓ Virtual Office Subscription Renewal
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div>
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-2 mt-4">
                         <label className="block text-sm font-bold text-slate-700 uppercase tracking-widest">Email Body</label>
                         
                         <div className="flex p-1 bg-slate-100 rounded-lg shadow-inner">
@@ -381,13 +427,13 @@ export default function EmailTemplates() {
                       
                       {!formData.isHtml && (
                         <p className="text-sm font-medium text-slate-600 mb-3 italic">
-                          Tip: Type naturally. Paragraphs and line breaks will be preserved perfectly.
+                          Tip: Type naturally. Paragraphs and line breaks will be preserved perfectly. Use tags like [Client Name] or [Exact Expiry Date].
                         </p>
                       )}
                       
                       <textarea required rows="12" className="w-full rounded-xl border border-slate-300 bg-slate-50/50 px-5 py-4 text-base text-slate-900 shadow-inner focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all resize-y font-mono" 
                         value={formData.body} onChange={(e) => setFormData({...formData, body: e.target.value})} 
-                        placeholder={formData.isHtml ? "<p>Write your HTML code here...</p>" : "Dear Client,\n\nType your message here.\n\nBest,\nAdmin"} 
+                        placeholder={formData.isHtml ? "<p>Write your HTML code here...</p>" : "Dear [Client Name],\n\nType your message here.\n\nBest,\nAdmin"} 
                       />
                     </div>
 
