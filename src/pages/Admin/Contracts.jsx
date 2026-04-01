@@ -3,7 +3,7 @@ import Sidebar from '../../components/Sidebar';
 
 export default function Contracts() {
   const [clients, setClients] = useState([]);
-  const [contracts, setContracts] = useState([]); // NEW: State to hold our table data
+  const [contracts, setContracts] = useState([]); 
   
   const [formData, setFormData] = useState({
     userId: '',
@@ -12,11 +12,11 @@ export default function Contracts() {
     endDate: ''
   });
 
-  // NEW: A helper function to grab the latest contracts from the database
   const fetchContracts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/contracts', {
+      // FIXED: Corrected the backtick syntax error
+      const response = await fetch(`http://${window.location.hostname}:5000/api/contracts`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -32,7 +32,7 @@ export default function Contracts() {
     const fetchClients = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://192.168.200.15:5000/api/users/clients', {
+        const response = await fetch(`http://${window.location.hostname}:5000/api/users/clients`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {
@@ -45,7 +45,7 @@ export default function Contracts() {
     };
 
     fetchClients();
-    fetchContracts(); // Fetch the table data when the page loads!
+    fetchContracts(); 
   }, []);
 
   const handleSubmit = async (e) => {
@@ -57,7 +57,8 @@ export default function Contracts() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/contracts', {
+      // FIXED: Corrected the backtick syntax error
+      const response = await fetch(`http://${window.location.hostname}:5000/api/contracts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,10 +74,7 @@ export default function Contracts() {
 
       if (!response.ok) throw new Error('Failed to create contract.');
 
-      // Clear the form
       setFormData({ userId: '', companyName: '', startDate: '', endDate: '' });
-      
-      // NEW: Instantly refresh the table so the new contract appears!
       fetchContracts();
 
     } catch (error) {
@@ -85,7 +83,6 @@ export default function Contracts() {
     }
   };
 
-  // Helper function to format SQL dates nicely (YYYY-MM-DD -> Month DD, YYYY)
   const formatDate = (dateString) => {
     const options = { year: 'numeric', month: 'short', day: 'numeric' };
     return new Date(dateString).toLocaleDateString(undefined, options);
@@ -102,7 +99,6 @@ export default function Contracts() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           
-          {/* LEFT COLUMN: THE FORM */}
           <div className="xl:col-span-1">
             <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100">
               <div className="mb-6 border-b border-slate-100 pb-4">
@@ -168,7 +164,6 @@ export default function Contracts() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: THE DATA TABLE */}
           <div className="xl:col-span-2">
             <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">

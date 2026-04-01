@@ -36,7 +36,7 @@ export default function Sidebar() {
     setIsUpdating(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/users/profile', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/users/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ name: profileName, password: profilePassword })

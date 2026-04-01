@@ -35,7 +35,10 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://192.168.200.15:5000/api/auth/login', {
+      // THE MAGIC MIRROR URL: This will use localhost when on your laptop, and your IP when on your phone!
+      const API_URL = `http://${window.location.hostname}:5000/api/auth/login`;
+
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -64,30 +67,17 @@ export default function Login() {
   return (
     <div className="flex min-h-screen bg-white font-sans">
       
-      {/* ========================================== */}
-      {/* LEFT SIDE: SLIDESHOW & INFORMATION HERO    */}
-      {/* ========================================== */}
       <div className="relative hidden w-full lg:flex lg:w-3/5 bg-slate-900 overflow-hidden">
-        
-        {/* CROSSFADING IMAGES */}
         {images.map((img, index) => (
           <div
             key={index}
             className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
               index === currentImage ? 'opacity-100' : 'opacity-0'
             }`}
-            style={{
-              backgroundImage: `url(${img})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
+            style={{ backgroundImage: `url(${img})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
           />
         ))}
-
-        {/* DARK OVERLAY BLEND (Makes text readable over any image) */}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/60 to-slate-900/20" />
-
-        {/* LAUNCHPAD INFO CONTENT */}
         <div className="relative z-10 flex flex-col justify-end p-16 pb-24 h-full w-full">
           <img src={lpLogo} alt="Launchpad Logo" className="h-12 object-contain self-start mb-8 filter brightness-0 invert" />
           <h1 className="text-4xl font-black text-white leading-tight mb-4 tracking-tight">
@@ -96,26 +86,16 @@ export default function Login() {
           <p className="text-lg text-slate-300 max-w-xl leading-relaxed">
             Welcome to the Launchpad Coworking management system. Easily register clients, track payments, and issue secure official receipts across all our branches.
           </p>
-          
-          {/* Slideshow Indicators */}
           <div className="flex gap-2 mt-8">
             {images.map((_, index) => (
-              <div 
-                key={index} 
-                className={`h-1.5 rounded-full transition-all duration-500 ${index === currentImage ? 'w-8 bg-[#d2f34c]' : 'w-2 bg-white/30'}`}
-              />
+              <div key={index} className={`h-1.5 rounded-full transition-all duration-500 ${index === currentImage ? 'w-8 bg-[#d2f34c]' : 'w-2 bg-white/30'}`} />
             ))}
           </div>
         </div>
       </div>
 
-      {/* ========================================== */}
-      {/* RIGHT SIDE: LOGIN FORM                     */}
-      {/* ========================================== */}
       <div className="flex w-full items-center justify-center lg:w-2/5 p-8 lg:p-12 xl:p-24 shadow-[-20px_0_30px_-15px_rgba(0,0,0,0.1)] z-10 relative bg-white">
         <div className="w-full max-w-md">
-          
-          {/* Form Header */}
           <div className="mb-10 text-center lg:text-left">
             <img src={lpLogo} alt="Launchpad VO" className="h-12 object-contain mx-auto lg:mx-0 mb-6" />
             <h2 className="text-3xl font-black text-slate-800 tracking-tight">Welcome Back</h2>
@@ -134,7 +114,6 @@ export default function Login() {
                 placeholder="admin@launchpad.com"
               />
             </div>
-
             <div>
               <div className="flex justify-between items-end mb-1.5">
                 <label className="block text-sm font-bold text-slate-700">Password</label>
@@ -164,10 +143,8 @@ export default function Login() {
               {isLoading ? 'Authenticating...' : 'Sign In'}
             </button>
           </form>
-
         </div>
       </div>
-      
     </div>
   );
 }

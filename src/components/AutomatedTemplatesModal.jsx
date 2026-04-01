@@ -90,22 +90,22 @@ export default function AutomatedTemplatesModal({ onClose, onUpdateSuccess }) {
 
   const renderPreviewBody = (html) => {
     if (!html) return '';
-    // MATCHING LOGO REGEX SO PREVIEW ALWAYS LOADS THE CORRECT LOCAL FILE
     return html.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-6 animate-modal-fade font-sans">
-      <div className="w-full max-w-6xl h-[85vh] rounded-3xl bg-white shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/85 backdrop-blur-sm p-4 md:p-6 animate-modal-fade font-sans">
+      <div className="w-full max-w-6xl h-[85vh] rounded-2xl bg-white shadow-[0_0_50px_rgba(0,0,0,0.3)] border border-slate-700 ring-1 ring-white/10 flex flex-col overflow-hidden">
         
-        <div className="flex items-center justify-between border-b border-slate-100 p-6 bg-slate-50/80 shrink-0">
+        {/* DARK HEADER */}
+        <div className="flex items-center justify-between border-b border-slate-700 p-6 bg-slate-900 shrink-0">
           <div>
-            <h3 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <h3 className="text-2xl font-black text-white flex items-center gap-3">
               <span className="text-3xl">⚙️</span> Manage Automated Templates
             </h3>
-            <p className="text-slate-500 font-medium text-sm mt-1">Select the email layout the system will automatically send for Subscription Renewals.</p>
+            <p className="text-slate-300 font-medium text-sm mt-1">Select the email layout the system will automatically send for Subscription Renewals.</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 rounded-full h-10 w-10 flex items-center justify-center transition-colors">
+          <button onClick={onClose} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500 rounded-full h-10 w-10 flex items-center justify-center transition-all shadow-sm outline-none">
             <span className="text-xl font-bold leading-none -mt-0.5">✕</span>
           </button>
         </div>

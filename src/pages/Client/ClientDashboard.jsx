@@ -38,7 +38,7 @@ export default function ClientDashboard() {
       // 2. We must send the document type so the backend can name the file correctly
       formData.append('document_type', 'Business Permit'); 
 
-      const response = await fetch('http://192.168.200.15:5000/api/documents/upload', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/documents/upload', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
-import NotificationBell from '../../components/NotificationBell'; // Added Import
+import NotificationBell from '../../components/NotificationBell'; 
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import myLogo from '../../assets/launchpad.png';
@@ -12,28 +12,21 @@ export default function Payments() {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Advanced Features State
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterMode, setFilterMode] = useState('All');
-  const [filterMaker, setFilterMaker] = useState('All'); // NEW: Filter by who recorded it
+  const [filterMaker, setFilterMaker] = useState('All'); 
 
-  // ==========================================
-  // NEW: PAGINATION STATES
-  // ==========================================
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10 rows
+  const [itemsPerPage, setItemsPerPage] = useState(10); 
 
   const [confirmAction, setConfirmAction] = useState({ show: false, type: '', paymentId: null });
   
-  // Modals
   const [viewModal, setViewModal] = useState({ show: false, payment: null });
   
-  // Receipt Preview Modal
   const [receiptPreview, setReceiptPreview] = useState({ show: false, data: null });
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // User Role Checking
   const userRole = localStorage.getItem('userRole') || 'staff';
   const canVerify = ['admin', 'manager', 'supervisor'].includes(userRole);
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
@@ -46,7 +39,7 @@ export default function Payments() {
   const fetchPayments = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/payments', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/payments`, {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
       if (response.ok) {
@@ -59,8 +52,8 @@ export default function Payments() {
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const resLPC = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', { headers: { 'Authorization': `Bearer ${token}` }});
-      const resLPOG = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPOG', { headers: { 'Authorization': `Bearer ${token}` }});
+      const resLPC = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPC`, { headers: { 'Authorization': `Bearer ${token}` }});
+      const resLPOG = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, { headers: { 'Authorization': `Bearer ${token}` }});
       
       if (resLPC.ok && resLPOG.ok) {
         const lpcData = await resLPC.json();
@@ -72,16 +65,12 @@ export default function Payments() {
 
   useEffect(() => { fetchPayments(); fetchClients(); }, []);
 
-  // METRICS & FILTERS
   const totalPending = payments.filter(p => p.status === 'Pending').reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalVerified = payments.filter(p => p.status === 'Verified').reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalVoided = payments.filter(p => p.status === 'Voided').reduce((sum, p) => sum + Number(p.amount_paid), 0);
 
-  // ==========================================
-  // DYNAMIC DROPDOWNS & MASTER FILTER
-  // ==========================================
   const uniqueModes = [...new Set(payments.map(p => p.mode_of_payment))].filter(Boolean).sort();
-  const uniqueMakers = [...new Set(payments.map(p => p.recorded_by_name))].filter(Boolean).sort(); // NEW
+  const uniqueMakers = [...new Set(payments.map(p => p.recorded_by_name))].filter(Boolean).sort(); 
 
   const filteredPayments = payments.filter(payment => {
     const matchesSearch = payment.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -89,16 +78,13 @@ export default function Payments() {
     
     const matchesStatus = filterStatus === 'All' || payment.status === filterStatus;
     const matchesMode = filterMode === 'All' || payment.mode_of_payment === filterMode;
-    const matchesMaker = filterMaker === 'All' || payment.recorded_by_name === filterMaker; // NEW
+    const matchesMaker = filterMaker === 'All' || payment.recorded_by_name === filterMaker; 
 
     return matchesSearch && matchesStatus && matchesMode && matchesMaker;
   });
 
-  // ==========================================
-  // PAGINATION LOGIC
-  // ==========================================
   useEffect(() => {
-    setCurrentPage(1); // Auto-reset to page 1 if filters change
+    setCurrentPage(1); 
   }, [searchTerm, filterStatus, filterMode, filterMaker, itemsPerPage]);
 
   const actualItemsPerPage = itemsPerPage === 'All' ? filteredPayments.length : Number(itemsPerPage);
@@ -112,10 +98,6 @@ export default function Payments() {
     if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
   };
 
-  // ==========================================
-  // 📸 DOWNLOAD LOGIC (PNG & SECURE PDF)
-  // ==========================================
-  
   const captureReceiptImage = async () => {
     const receiptElement = document.getElementById('secure-receipt-template');
     if (!receiptElement) throw new Error("Receipt element not found");
@@ -176,13 +158,12 @@ export default function Payments() {
     }
   };
 
-  // CRUD ACTIONS
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/payments', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(formData)
@@ -206,12 +187,13 @@ export default function Payments() {
 
     try {
       let response;
+      // FIXED: Removed hardcoded IPs
       if (type === 'VERIFY') {
-        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}/verify`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://${window.location.hostname}:5000/api/payments/${paymentId}/verify`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
       } else if (type === 'DELETE') {
-        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://${window.location.hostname}:5000/api/payments/${paymentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
       } else if (type === 'VOID') {
-        response = await fetch(`http://192.168.200.15:5000/api/payments/${paymentId}/void`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
+        response = await fetch(`http://${window.location.hostname}:5000/api/payments/${paymentId}/void`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }});
       }
       if (!response.ok) throw new Error('Action failed');
       fetchPayments();
@@ -234,7 +216,6 @@ export default function Payments() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen">
-        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">Payments & Receipts</h2>
@@ -248,7 +229,6 @@ export default function Payments() {
           </div>
         </header>
 
-        {/* METRICS DASHBOARD */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
           <div className="bg-white p-4 lg:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 lg:gap-4 overflow-hidden">
             <div className="shrink-0 h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
@@ -279,9 +259,6 @@ export default function Payments() {
           </div>
         </div>
 
-        {/* ========================================== */}
-        {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
-        {/* ========================================== */}
         <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4 shrink-0">
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
@@ -323,7 +300,6 @@ export default function Payments() {
           </div>
         </div>
 
-        {/* DATA TABLE */}
         <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden mb-8">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-600 min-w-[900px]">
@@ -402,9 +378,6 @@ export default function Payments() {
               </tbody>
             </table>
           </div>
-          {/* ========================================== */}
-          {/* PAGINATION FOOTER CONTROLS                 */}
-          {/* ========================================== */}
           <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
             <div className="flex items-center gap-4 mb-4 md:mb-0">
               <span className="text-sm text-slate-500">
@@ -449,9 +422,6 @@ export default function Payments() {
         </div>
       </div>
 
-      {/* ========================================== */}
-      {/* 🧾 RECEIPT PREVIEW MODAL */}
-      {/* ========================================== */}
       {receiptPreview.show && receiptPreview.data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl flex flex-col max-h-[95vh] w-full max-w-[900px] overflow-hidden animate-fade-in">
@@ -613,7 +583,6 @@ export default function Payments() {
         </div>
       )}
 
-      {/* OVERVIEW MODAL */}
       {viewModal.show && viewModal.payment && (() => {
         const payment = viewModal.payment;
         const client = clients.find(c => c.id === payment.virtual_office_id) || {};
@@ -692,7 +661,6 @@ export default function Payments() {
         );
       })()}
 
-      {/* RECORD PAYMENT MODAL */}
       {showRecordModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
@@ -765,7 +733,6 @@ export default function Payments() {
         </div>
       )}
 
-      {/* CONFIRMATION MODAL */}
       {confirmAction.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">

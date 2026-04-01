@@ -5,19 +5,17 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Add these right below your other states
   const [showUserModal, setShowUserModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'staff' });
   const [editingUserId, setEditingUserId] = useState(null);
 
-  // Security Check: Kick out non-admins
   const userRole = localStorage.getItem('userRole');
 
   useEffect(() => {
     if (userRole !== 'admin') {
-      window.location.href = '/dashboard'; // Redirect non-admins
+      window.location.href = '/dashboard'; 
       return;
     }
     fetchAdminData();
@@ -27,7 +25,7 @@ export default function Users() {
         setIsLoading(true);
         try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://192.168.200.15:5000/api/users', { 
+        const response = await fetch(`http://${window.location.hostname}:5000/api/users`, { 
             headers: { 'Authorization': `Bearer ${token}` } 
         });
 
@@ -41,12 +39,11 @@ export default function Users() {
         }
   };
 
-  if (userRole !== 'admin') return null; // Prevent UI flicker before redirect
+  if (userRole !== 'admin') return null; 
 
   const handleEditClick = (user) => {
     setErrorMessage('');
     setEditingUserId(user.id);
-    // Pre-fill the form, leaving password blank
     setNewUser({ name: user.name, email: user.email, password: '', role: user.role });
     setShowUserModal(true);
   };
@@ -56,7 +53,8 @@ export default function Users() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://192.168.200.15:5000/api/users/${id}`, {
+      // FIXED: Removed hardcoded IP
+      const response = await fetch(`http://${window.location.hostname}:5000/api/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -77,9 +75,10 @@ export default function Users() {
 
     try {
       const token = localStorage.getItem('token');
+      // FIXED: Removed hardcoded IP
       const url = editingUserId 
-        ? `http://192.168.200.15:5000/api/users/${editingUserId}` 
-        : 'http://192.168.200.15:5000/api/users';
+        ? `http://${window.location.hostname}:5000/api/users/${editingUserId}` 
+        : `http://${window.location.hostname}:5000/api/users`;
         
       const method = editingUserId ? 'PUT' : 'POST';
 
@@ -94,9 +93,9 @@ export default function Users() {
         throw new Error(errData.message || 'Failed to create user.');
       }
 
-      await fetchAdminData(); // Refresh the table
-      setShowUserModal(false); // Close the modal
-      setNewUser({ name: '', email: '', password: '', role: 'staff' }); // Reset form
+      await fetchAdminData(); 
+      setShowUserModal(false); 
+      setNewUser({ name: '', email: '', password: '', role: 'staff' }); 
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -109,7 +108,7 @@ export default function Users() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen">
-<header className="mb-8">
+        <header className="mb-8">
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">User Management</h2>
           <p className="text-slate-500 mt-1 font-medium">Manage internal personnel accounts and system access.</p>
         </header>
@@ -170,9 +169,6 @@ export default function Users() {
         )}
 
       </div>
-      {/* ========================================== */}
-      {/* CREATE USER MODAL                          */}
-      {/* ========================================== */}
       {showUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
           <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">

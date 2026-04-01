@@ -18,8 +18,9 @@ function App() {
 
   // --- NEW: Global Socket Listener for Notifications ---
   useEffect(() => {
-    // Connect to your Node.js backend
-    const socket = io('http://192.168.200.15:4000');
+    // FIXED: Use the dynamic Mirror URL and point to Port 5000!
+    const SOCKET_URL = `http://${window.location.hostname}:5000`;
+    const socket = io(SOCKET_URL);
 
     // Listen for the event emitted by imapListener.js
     socket.on('incoming_email', () => {

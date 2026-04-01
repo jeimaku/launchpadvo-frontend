@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Sidebar from '../../components/Sidebar';
 import EmailSidebar from '../../components/EmailSidebar';
 import ComposeEmailModal from '../../components/ComposeEmailModal';
 import NotificationBell from '../../components/NotificationBell'; 
-// UPDATED IMPORT
 import launchpadLogo from '../../assets/launchpad-logo-dark.png'; 
 
 const API_URL = `http://${window.location.hostname}:5000`;
@@ -51,16 +50,34 @@ export default function EmailTemplates() {
     subject: '',
     body: '',
     templateType: 'manual', 
-    isHtml: false,
+    isHtml: true, 
     existingAttachments: [],
     newFiles: []
   });
 
   const [previewTemplate, setPreviewTemplate] = useState(null);
-  const [isFormPreview, setIsFormPreview] = useState(false);
 
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
+
+  // --- RICH TEXT EDITOR REFS & STATE ---
+  const editorRef = useRef(null);
+  const savedRangeRef = useRef(null); 
+  const [activeFormats, setActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    insertOrderedList: false,
+    insertUnorderedList: false
+  });
+
+  useEffect(() => {
+    if (currentView === 'form' && editorRef.current) {
+      if (editorRef.current.innerHTML !== formData.body) {
+        editorRef.current.innerHTML = formData.body || '';
+      }
+    }
+  }, [currentView, formData.id]);
 
   const fetchTemplates = async () => {
     try {
@@ -122,8 +139,8 @@ export default function EmailTemplates() {
   };
 
   const resetForm = () => {
-    setFormData({ id: null, name: '', subject: '', body: '', templateType: 'manual', isHtml: false, existingAttachments: [], newFiles: [] });
-    setIsFormPreview(false);
+    setFormData({ id: null, name: '', subject: '', body: '', templateType: 'manual', isHtml: true, existingAttachments: [], newFiles: [] });
+    setActiveFormats({ bold: false, italic: false, underline: false, insertOrderedList: false, insertUnorderedList: false });
   };
 
   const getEmailSnippet = (htmlString) => {
@@ -140,11 +157,10 @@ export default function EmailTemplates() {
       subject: template.subject,
       body: template.body,
       templateType: template.templateType || 'manual',
-      isHtml: template.isHtml !== undefined ? template.isHtml : false,
+      isHtml: true, 
       existingAttachments: template.attachments || [],
       newFiles: []
     });
-    setIsFormPreview(false);
     setCurrentView('form');
   };
 
@@ -153,8 +169,69 @@ export default function EmailTemplates() {
     setCurrentView('preview');
   };
 
+  // --- RICH TEXT EDITOR FUNCTIONS ---
+  const saveSelection = () => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0 && editorRef.current && editorRef.current.contains(selection.anchorNode)) {
+      savedRangeRef.current = selection.getRangeAt(0);
+    }
+  };
+
+  const checkActiveFormats = () => {
+    if (!editorRef.current) return;
+    setActiveFormats({
+      bold: document.queryCommandState('bold'),
+      italic: document.queryCommandState('italic'),
+      underline: document.queryCommandState('underline'),
+      insertOrderedList: document.queryCommandState('insertOrderedList'),
+      insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+    });
+  };
+
+  const handleFormat = (command, value = null) => {
+    document.execCommand(command, false, value);
+    if (editorRef.current) editorRef.current.focus();
+    handleEditorInput();
+    checkActiveFormats(); 
+  };
+
+  const handleInlineImage = (e) => {
+    const file = e.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (editorRef.current) {
+          editorRef.current.focus();
+          if (savedRangeRef.current) {
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(savedRangeRef.current);
+          }
+          const imgTag = `<br/><img src="${event.target.result}" style="max-width: 100%; border-radius: 8px; margin: 10px 0;" alt="Embedded Image" /><br/><br/>`;
+          document.execCommand('insertHTML', false, imgTag);
+          handleEditorInput();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = null; 
+  };
+
+  const handleEditorInput = () => {
+    if (editorRef.current) {
+      setFormData(prev => ({ ...prev, body: editorRef.current.innerHTML, isHtml: true }));
+    }
+  };
+
+  // --- TEMPLATE SAVING ---
   const handleSaveTemplate = async (e) => {
     e.preventDefault();
+
+    const strippedBody = formData.body.replace(/<[^>]*>?/gm, '').trim();
+    if (!strippedBody && !formData.body.includes('<img')) {
+      setAlertPrompt({ isOpen: true, message: "Please provide a message layout for the template before saving.", isError: true });
+      return;
+    }
 
     const fileDataPromises = formData.newFiles.map(async (file) => ({
       name: file.name, type: file.type, size: file.size, base64: await fileToBase64(file)
@@ -248,7 +325,6 @@ export default function EmailTemplates() {
 
   const renderSafePreviewBody = (htmlContent) => {
     if (!htmlContent) return '';
-    // UPDATE PREVIEW RENDERER TO CATCH BOTH FILE NAMES
     return htmlContent.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
   };
 
@@ -265,11 +341,23 @@ export default function EmailTemplates() {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Rich Text Editor Styles for Form View */
+        .rich-editor:empty:before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          font-weight: bold;
+          pointer-events: none;
+          display: block;
+        }
+        .rich-editor ul { list-style-type: disc; margin-left: 1.5rem; padding-left: 1rem; }
+        .rich-editor ol { list-style-type: decimal; margin-left: 1.5rem; padding-left: 1rem; }
       `}</style>
 
       <Sidebar />
       <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
         
+        {/* --- PAGE HEADER --- */}
         <div className="mb-6 shrink-0 flex justify-between items-start">
           <div>
             <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
@@ -285,17 +373,18 @@ export default function EmailTemplates() {
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden relative">
             
+            {/* INNER CONTENT HEADER */}
             <div className="flex items-center justify-between border-b border-slate-100 p-8 bg-slate-50/80 shrink-0">
               <div>
                 <h3 className="text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tight">
                   <span className="text-3xl">📚</span>
                   {currentView === 'library' && 'Template Library'}
-                  {currentView === 'form' && (formData.id ? 'Edit Template' : 'Create New Template')}
+                  {currentView === 'form' && (formData.id ? 'Edit Template' : 'Design New Template')}
                   {currentView === 'preview' && 'Template Preview'}
                 </h3>
                 <p className="text-base text-slate-500 font-medium mt-1">
                   {currentView === 'library' && 'Manage your pre-written emails and permanent attachments.'}
-                  {currentView === 'form' && 'Design a reusable email layout to save time on repetitive emails.'}
+                  {currentView === 'form' && 'Create a beautiful, reusable email layout to save time.'}
                   {currentView === 'preview' && 'See exactly how this template will look when sent.'}
                 </p>
               </div>
@@ -306,6 +395,9 @@ export default function EmailTemplates() {
               )}
             </div>
 
+            {/* ========================================== */}
+            {/* VIEW: LIBRARY                              */}
+            {/* ========================================== */}
             {currentView === 'library' && (
               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
                 <div className="flex flex-col gap-4">
@@ -369,107 +461,197 @@ export default function EmailTemplates() {
               </div>
             )}
 
+            {/* ========================================== */}
+            {/* VIEW: REDESIGNED FORM CREATOR              */}
+            {/* ========================================== */}
             {currentView === 'form' && (
-              <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
-                <div className="max-w-4xl mx-auto">
+              <div className="flex-1 p-6 sm:p-10 overflow-y-auto custom-scrollbar bg-slate-100">
+                <div className="max-w-5xl mx-auto pb-20">
                   
-                  <button onClick={() => setCurrentView('library')} className="mb-6 text-base font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-2 transition-colors w-max">
-                    &larr; Back to Library
+                  <button onClick={() => setCurrentView('library')} className="mb-8 px-5 py-2.5 bg-white border border-slate-200 text-sm font-bold text-slate-600 hover:text-slate-900 hover:border-slate-300 rounded-full flex items-center gap-2 transition-all shadow-sm w-max group">
+                    <span className="group-hover:-translate-x-1 transition-transform">&larr;</span> Back to Library
                   </button>
 
-                  <form onSubmit={handleSaveTemplate} className="space-y-6 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Template Name</label>
-                        <input required type="text" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all" 
-                          value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} placeholder="e.g., Final Warning Notice" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Default Subject Line</label>
-                        <input required type="text" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all" 
-                          value={formData.subject} onChange={(e) => setFormData({...formData, subject: e.target.value})} placeholder="Virtual Office Subscription..." />
-                      </div>
-                    </div>
+                  <form onSubmit={handleSaveTemplate} className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.06)] border border-slate-200 flex flex-col">
+                    <div className="p-8 sm:p-10 space-y-10">
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-slate-50 rounded-xl border border-slate-200">
+                      {/* 1. BASIC INFO */}
                       <div>
-                        <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Template Usage</label>
-                        <select className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#d2f34c]" 
-                          value={formData.templateType} onChange={(e) => setFormData({...formData, templateType: e.target.value})}>
-                          <option value="manual">Manual Use (Compose Email)</option>
-                          <option value="automated">Automated (System Triggered)</option>
-                        </select>
-                      </div>
-
-                      {formData.templateType === 'automated' && (
-                        <div>
-                          <label className="mb-2 block text-sm font-bold text-purple-700 uppercase tracking-widest">System Trigger</label>
-                          <div className="w-full rounded-xl border-2 border-purple-300 bg-purple-50 px-4 py-3 text-base font-medium text-purple-900 shadow-sm cursor-not-allowed">
-                            ✓ Virtual Office Subscription Renewal
+                        <h4 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2"><span className="text-[#b8d839] text-2xl">1.</span> Template Details</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div>
+                            <label className="mb-2.5 block text-xs font-bold text-slate-500 uppercase tracking-widest">Template Name</label>
+                            <input required type="text" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-base font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#b8d839] transition-all placeholder:text-slate-400 placeholder:font-medium" 
+                              value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} placeholder="e.g., Final Warning Notice" />
+                          </div>
+                          <div>
+                            <label className="mb-2.5 block text-xs font-bold text-slate-500 uppercase tracking-widest">Default Subject Line</label>
+                            <input required type="text" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-base font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#d2f34c] focus:border-[#b8d839] transition-all placeholder:text-slate-400 placeholder:font-medium" 
+                              value={formData.subject} onChange={(e) => setFormData({...formData, subject: e.target.value})} placeholder="e.g., Action Required: Virtual Office..." />
                           </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
 
-                    <div>
-                      <div className="flex items-center justify-between mb-2 mt-4">
-                        <label className="block text-sm font-bold text-slate-700 uppercase tracking-widest">Email Body</label>
+                      {/* 2. CONFIGURATION (DARK PANEL) */}
+                      <div>
+                        <h4 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2"><span className="text-[#b8d839] text-2xl">2.</span> Automation Settings</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-slate-900 rounded-3xl shadow-inner border border-slate-800 relative overflow-hidden">
+                          {/* Decorative glow */}
+                          <div className="absolute -top-24 -right-24 w-64 h-64 bg-[#d2f34c] rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
+                          
+                          <div className="relative z-10">
+                            <label className="mb-2.5 block text-xs font-bold text-slate-400 uppercase tracking-widest">Template Usage</label>
+                            <select className="w-full rounded-2xl border border-slate-700 bg-slate-800/80 px-5 py-4 text-base font-bold text-white focus:outline-none focus:ring-2 focus:ring-[#d2f34c] transition-all cursor-pointer" 
+                              value={formData.templateType} onChange={(e) => setFormData({...formData, templateType: e.target.value})}>
+                              <option value="manual">📝 Manual Use (Compose Email)</option>
+                              <option value="automated">⚡ Automated (System Triggered)</option>
+                            </select>
+                          </div>
+
+                          {formData.templateType === 'automated' ? (
+                            <div className="relative z-10">
+                              <label className="mb-2.5 block text-xs font-bold text-purple-400 uppercase tracking-widest">System Trigger</label>
+                              <div className="w-full rounded-2xl border border-purple-500/30 bg-purple-500/10 px-5 py-4 text-base font-bold text-purple-300 flex items-center gap-3 shadow-inner cursor-not-allowed">
+                                <span className="text-xl">⚡</span> Virtual Office Subscription Renewal
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="relative z-10 flex items-center opacity-60">
+                              <p className="text-sm font-medium text-slate-400 leading-relaxed mt-6">This template will be available in the 'Compose Email' modal for manual sending.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 3. RICH TEXT EDITOR */}
+                      <div>
+                        <h4 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2"><span className="text-[#b8d839] text-2xl">3.</span> Message Layout</h4>
+                        <div className="border border-slate-300 rounded-3xl shadow-sm bg-white focus-within:ring-2 focus-within:ring-[#d2f34c] focus-within:border-[#b8d839] transition-all relative">
+                          
+                          {/* Formatting Toolbar */}
+                          <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border-b border-slate-200 p-3 rounded-t-3xl relative z-10">
+                            
+                            <button 
+                              type="button" 
+                              onMouseDown={(e) => { e.preventDefault(); handleFormat('bold'); }} 
+                              className={`relative group w-8 h-8 flex items-center justify-center rounded-lg font-bold transition-all ${
+                                activeFormats.bold ? 'bg-slate-300 text-slate-900 shadow-inner ring-1 ring-slate-400' : 'hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              B
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-slate-800 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Bold Text</span>
+                            </button>
+                            
+                            <button 
+                              type="button" 
+                              onMouseDown={(e) => { e.preventDefault(); handleFormat('italic'); }} 
+                              className={`relative group w-8 h-8 flex items-center justify-center rounded-lg italic transition-all ${
+                                activeFormats.italic ? 'bg-slate-300 text-slate-900 shadow-inner ring-1 ring-slate-400' : 'hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              I
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-slate-800 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Italic Text</span>
+                            </button>
+                            
+                            <button 
+                              type="button" 
+                              onMouseDown={(e) => { e.preventDefault(); handleFormat('underline'); }} 
+                              className={`relative group w-8 h-8 flex items-center justify-center rounded-lg underline transition-all ${
+                                activeFormats.underline ? 'bg-slate-300 text-slate-900 shadow-inner ring-1 ring-slate-400' : 'hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              U
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-slate-800 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Underline</span>
+                            </button>
+                            
+                            <div className="w-px h-6 bg-slate-300 mx-2"></div> 
+                            
+                            <button 
+                              type="button" 
+                              onMouseDown={(e) => { e.preventDefault(); handleFormat('insertOrderedList'); }} 
+                              className={`relative group px-3 h-8 flex items-center justify-center rounded-lg font-bold text-sm transition-all ${
+                                activeFormats.insertOrderedList ? 'bg-slate-300 text-slate-900 shadow-inner ring-1 ring-slate-400' : 'hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              1.
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-slate-800 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Numbered List</span>
+                            </button>
+                            
+                            <button 
+                              type="button" 
+                              onMouseDown={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }} 
+                              className={`relative group px-3 h-8 flex items-center justify-center rounded-lg font-black text-xl leading-none transition-all ${
+                                activeFormats.insertUnorderedList ? 'bg-slate-300 text-slate-900 shadow-inner ring-1 ring-slate-400' : 'hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              •
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-slate-800 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Bullet Points</span>
+                            </button>
+                            
+                            <div className="w-px h-6 bg-slate-300 mx-2"></div> 
+                            
+                            <label 
+                              onMouseDown={saveSelection}
+                              className="relative group px-4 h-8 flex items-center gap-2 hover:bg-emerald-100 text-emerald-700 rounded-lg font-bold text-sm cursor-pointer transition-colors border border-transparent hover:border-emerald-200"
+                            >
+                              <span>🖼️ Insert Image</span>
+                              <input type="file" accept="image/*" className="hidden" onChange={handleInlineImage} />
+                              <span className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100 bg-emerald-600 text-white text-[11px] font-black px-2.5 py-1 rounded shadow-md pointer-events-none whitespace-nowrap z-50">Embed a Photo</span>
+                            </label>
+                          </div>
+
+                          {/* Editable Content Area */}
+                          <div
+                            ref={editorRef}
+                            contentEditable
+                            onInput={() => { handleEditorInput(); saveSelection(); }}
+                            onBlur={() => { handleEditorInput(); saveSelection(); }}
+                            onKeyUp={() => { checkActiveFormats(); saveSelection(); }}   
+                            onMouseUp={() => { checkActiveFormats(); saveSelection(); }} 
+                            className="rich-editor w-full min-h-[400px] max-h-[600px] overflow-y-auto p-8 outline-none text-lg text-slate-800 leading-relaxed custom-scrollbar prose max-w-none rounded-b-3xl relative z-0"
+                            data-placeholder="Design your template here. You can use tags like [Client Name] or [Exact Expiry Date] which will auto-fill later."
+                          />
+                        </div>
+                      </div>
+
+                      {/* 4. ATTACHMENTS */}
+                      <div>
+                        <h4 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2"><span className="text-[#b8d839] text-2xl">4.</span> Permanent Attachments</h4>
                         
-                        <div className="flex p-1 bg-slate-100 rounded-lg shadow-inner">
-                          <button type="button" onClick={() => setFormData({...formData, isHtml: false})} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${!formData.isHtml ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
-                            Text Mode
-                          </button>
-                          <button type="button" onClick={() => setFormData({...formData, isHtml: true})} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${formData.isHtml ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
-                            HTML Mode
-                          </button>
+                        <div className="bg-slate-50 border-2 border-dashed border-slate-300 hover:border-[#b8d839] hover:bg-[#d2f34c]/10 rounded-3xl p-10 transition-all text-center cursor-pointer group shadow-sm relative">
+                          <input type="file" multiple onChange={(e) => { if(e.target.files) setFormData({...formData, newFiles: [...formData.newFiles, ...Array.from(e.target.files)]}) }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                          <svg className="mx-auto h-12 w-12 text-slate-400 group-hover:text-[#b8d839] transition-colors mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                          </svg>
+                          <p className="text-lg font-black text-slate-700">Click or drag files here to attach</p>
+                          <p className="text-base font-medium text-slate-500 mt-1">Files attached here will be permanently tied to this template.</p>
                         </div>
-                      </div>
-                      
-                      {!formData.isHtml && (
-                        <p className="text-sm font-medium text-slate-600 mb-3 italic">
-                          Tip: Type naturally. Paragraphs and line breaks will be preserved perfectly. Use tags like [Client Name] or [Exact Expiry Date].
-                        </p>
-                      )}
-                      
-                      <textarea required rows="12" className="w-full rounded-xl border border-slate-300 bg-slate-50/50 px-5 py-4 text-base text-slate-900 shadow-inner focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#d2f34c] focus:border-[#d2f34c] transition-all resize-y font-mono" 
-                        value={formData.body} onChange={(e) => setFormData({...formData, body: e.target.value})} 
-                        placeholder={formData.isHtml ? "<p>Write your HTML code here...</p>" : "Dear [Client Name],\n\nType your message here.\n\nBest,\nAdmin"} 
-                      />
-                    </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-bold text-slate-700 uppercase tracking-widest">Permanent Attachments</label>
-                      
-                      <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-8 relative hover:bg-[#d2f34c]/5 hover:border-[#d2f34c] transition-colors text-center cursor-pointer mb-4 group">
-                        <input type="file" multiple onChange={(e) => { if(e.target.files) setFormData({...formData, newFiles: [...formData.newFiles, ...Array.from(e.target.files)]}) }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                        <svg className="mx-auto h-10 w-10 text-slate-400 group-hover:text-[#b8d839] transition-colors mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                        </svg>
-                        <p className="text-base font-bold text-slate-700">Click or drag files here to attach</p>
-                        <p className="text-sm font-medium text-slate-500 mt-1">Files attached here will be permanently tied to this template.</p>
+                        {(formData.existingAttachments.length > 0 || formData.newFiles.length > 0) && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-6">
+                            {formData.existingAttachments.map((f, i) => (
+                              <div key={`old-${i}`} className="flex justify-between items-center bg-white border border-slate-200 px-5 py-4 rounded-xl shadow-sm">
+                                <span className="text-sm font-bold text-slate-700 truncate flex items-center gap-3"><span className="text-xl text-slate-400">📄</span> {f.name}</span>
+                                <button type="button" onClick={() => setFormData({...formData, existingAttachments: formData.existingAttachments.filter((_, idx) => idx !== i)})} className="text-red-400 hover:text-red-600 p-1 transition-colors">✕</button>
+                              </div>
+                            ))}
+                            {formData.newFiles.map((f, i) => (
+                              <div key={`new-${i}`} className="flex justify-between items-center bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-xl shadow-sm">
+                                <span className="text-sm font-bold text-emerald-800 truncate flex items-center gap-3"><span className="text-xl text-emerald-500">✨</span> {f.name}</span>
+                                <button type="button" onClick={() => setFormData({...formData, newFiles: formData.newFiles.filter((_, idx) => idx !== i)})} className="text-red-400 hover:text-red-600 p-1 transition-colors">✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
-                      {(formData.existingAttachments.length > 0 || formData.newFiles.length > 0) && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                          {formData.existingAttachments.map((f, i) => (
-                            <div key={`old-${i}`} className="flex justify-between items-center bg-white border border-slate-200 px-4 py-3 rounded-lg shadow-sm">
-                              <span className="text-sm font-bold text-slate-700 truncate flex items-center gap-2"><span className="text-lg text-slate-400">📄</span> {f.name}</span>
-                              <button type="button" onClick={() => setFormData({...formData, existingAttachments: formData.existingAttachments.filter((_, idx) => idx !== i)})} className="text-red-400 hover:text-red-600 p-1 transition-colors">✕</button>
-                            </div>
-                          ))}
-                          {formData.newFiles.map((f, i) => (
-                            <div key={`new-${i}`} className="flex justify-between items-center bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-lg shadow-sm">
-                              <span className="text-sm font-bold text-emerald-800 truncate flex items-center gap-2"><span className="text-lg text-emerald-500">✨</span> {f.name}</span>
-                              <button type="button" onClick={() => setFormData({...formData, newFiles: formData.newFiles.filter((_, idx) => idx !== i)})} className="text-red-400 hover:text-red-600 p-1 transition-colors">✕</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
-                    <div className="flex justify-end border-t border-slate-100 pt-6 mt-4">
-                      <button type="submit" className="rounded-xl bg-[#d2f34c] px-8 py-3 text-base font-bold text-slate-900 hover:bg-[#b8d839] transition-all shadow-sm flex items-center gap-2 uppercase tracking-wide">
-                        {formData.id ? 'Save Changes' : 'Save Template'}
+                    {/* 5. FOOTER ACTIONS */}
+                    <div className="bg-slate-50 border-t border-slate-200 px-8 py-6 sm:px-10 flex items-center justify-between rounded-b-[2rem]">
+                      <p className="text-sm font-medium text-slate-500 hidden sm:block">Ensure all details and layout formatting are correct before saving.</p>
+                      <button type="submit" className="rounded-xl bg-[#d2f34c] px-10 py-3.5 text-base font-black text-slate-900 hover:bg-[#b8d839] hover:-translate-y-0.5 transition-all shadow-lg shadow-[#d2f34c]/20 flex items-center gap-2 uppercase tracking-wide w-full sm:w-auto justify-center">
+                        {formData.id ? 'Save Changes' : 'Publish Template'}
                       </button>
                     </div>
                   </form>
@@ -477,6 +659,9 @@ export default function EmailTemplates() {
               </div>
             )}
 
+            {/* ========================================== */}
+            {/* VIEW: PREVIEW                              */}
+            {/* ========================================== */}
             {currentView === 'preview' && previewTemplate && (
               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-100/50 flex flex-col">
                 <div className="max-w-4xl mx-auto w-full">
@@ -524,6 +709,7 @@ export default function EmailTemplates() {
         </div>
       </main>
 
+      {/* --- MODALS --- */}
       {templateToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-modal-pop">

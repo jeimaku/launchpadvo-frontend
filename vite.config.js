@@ -9,6 +9,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: true, // THIS IS THE MAGIC LINE! It tells Vite to listen to your network IP.
     port: 4000
   }
 })

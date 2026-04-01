@@ -9,7 +9,7 @@ import EmailViewModal from '../../components/EmailViewModal';
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 
 // UPDATED: Hardcoded to your specific IP to match the rest of the application
-const API_URL = 'http://192.168.200.15:5000';
+const API_URL = `http://${window.location.hostname}:5000`;
 
 export default function EmailTrash() {
   const [trashItems, setTrashItems] = useState([]);

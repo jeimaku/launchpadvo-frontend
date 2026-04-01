@@ -1,28 +1,21 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
-import NotificationBell from '../../components/NotificationBell'; // Added Import
+import NotificationBell from '../../components/NotificationBell'; 
 
 export default function LPCVirtualOffice() {
   const [clients, setClients] = useState([]);
   const [showFormModal, setShowFormModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   
-  // ==========================================
-  // 1. STATES FOR CRUD & ADVANCED FILTERING
-  // ==========================================
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterDuration, setFilterDuration] = useState('All');
   const [filterRate, setFilterRate] = useState('All');
   const [filterTerms, setFilterTerms] = useState('All');
-
   const [filterPackage, setFilterPackage] = useState('All');
 
-  // ==========================================
-  // NEW: PAGINATION STATES
-  // ==========================================
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10); // Default 10 rows per page
+  const [itemsPerPage, setItemsPerPage] = useState(10); 
   
   const [editingId, setEditingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ show: false, actionType: '', clientId: null });
@@ -35,14 +28,13 @@ export default function LPCVirtualOffice() {
 
   const [formData, setFormData] = useState(initialFormState);
 
-  // Role Check for Notification Bell
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPC`, {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
       if (response.ok) {
@@ -56,18 +48,11 @@ export default function LPCVirtualOffice() {
 
   useEffect(() => { fetchClients(); }, []);
 
-  // ==========================================
-  // 2. DYNAMIC DROPDOWN GENERATORS
-  // ==========================================
   const uniqueDurations = [...new Set(clients.map(c => c.duration))].filter(Boolean).sort();
   const uniqueRates = [...new Set(clients.map(c => Number(c.rate_per_month)))].filter(Boolean).sort((a,b) => a - b);
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
-
   const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort();
 
-  // ==========================================
-  // 3. THE MASTER FILTER ENGINE
-  // ==========================================
   const filteredClients = clients.filter(client => {
     const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (client.contact_person_1 && client.contact_person_1.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -76,15 +61,11 @@ export default function LPCVirtualOffice() {
     const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
     const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
     const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
-    const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; // NEW check
+    const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; 
 
     return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage;
   });
 
-  // ==========================================
-  // NEW: PAGINATION LOGIC
-  // ==========================================
-  // Auto-reset to page 1 if any filter or search changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage, itemsPerPage]);
@@ -100,9 +81,6 @@ export default function LPCVirtualOffice() {
     if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
   };
 
-  // ==========================================
-  // 4. CRUD ACTIONS
-  // ==========================================
   const handleAddNew = () => {
     setEditingId(null);
     setFormData(initialFormState);
@@ -139,7 +117,8 @@ export default function LPCVirtualOffice() {
     if (actionType === 'DELETE') {
       try {
         const token = localStorage.getItem('token');
-        await fetch(`http://192.168.200.15:5000/api/virtual-offices/${clientId}`, {
+        // FIXED: Removed hardcoded IP
+        await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${clientId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -153,9 +132,12 @@ export default function LPCVirtualOffice() {
       : formData.package_tier;
 
     const payload = { ...formData, package_tier: finalPackageTier, branch: 'LPC' };
+    
+    // FIXED: Removed hardcoded IP
     const url = actionType === 'EDIT' 
-      ? `http://192.168.200.15:5000/api/virtual-offices/${clientId}` 
-      : 'http://192.168.200.15:5000/api/virtual-offices';
+      ? `http://${window.location.hostname}:5000/api/virtual-offices/${clientId}` 
+      : `http://${window.location.hostname}:5000/api/virtual-offices`;
+      
     const method = actionType === 'EDIT' ? 'PUT' : 'POST';
 
     try {
@@ -195,7 +177,6 @@ export default function LPCVirtualOffice() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden">
-        {/* MODIFIED HEADER WITH NOTIFICATION BELL */}
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPC Virtual Office</h2>
@@ -212,9 +193,6 @@ export default function LPCVirtualOffice() {
           </div>
         </header>
 
-        {/* ========================================== */}
-        {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
-        {/* ========================================== */}
         <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
@@ -296,9 +274,6 @@ export default function LPCVirtualOffice() {
           </div>
         </div>
 
-        {/* ========================================== */}
-        {/* THE DATA TABLE                             */}
-        {/* ========================================== */}
         <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-600">
@@ -361,9 +336,7 @@ export default function LPCVirtualOffice() {
               </tbody>
             </table>
           </div>
-          {/* ========================================== */}
-          {/* PAGINATION FOOTER CONTROLS                 */}
-          {/* ========================================== */}
+          
           <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
             <div className="flex items-center gap-4 mb-4 md:mb-0">
               <span className="text-sm text-slate-500">
@@ -408,9 +381,6 @@ export default function LPCVirtualOffice() {
         </div>
       </div>
 
-      {/* ========================================== */}
-      {/* FORM MODAL (Add / Edit)                    */}
-      {/* ========================================== */}
       {showFormModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-4xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -545,9 +515,6 @@ export default function LPCVirtualOffice() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* GLOBAL CONFIRMATION MODAL                  */}
-      {/* ========================================== */}
       {confirmModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">

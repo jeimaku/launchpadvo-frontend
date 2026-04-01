@@ -7,21 +7,15 @@ export default function LPOGVirtualOffice() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   
-  // ==========================================
-  // 1. STATES FOR CRUD & ADVANCED FILTERING
-  // ==========================================
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterDuration, setFilterDuration] = useState('All');
   const [filterRate, setFilterRate] = useState('All');
   const [filterTerms, setFilterTerms] = useState('All');
-  const [filterPackage, setFilterPackage] = useState('All'); // NEW: Package Tier Filter
+  const [filterPackage, setFilterPackage] = useState('All'); 
   
-  // ==========================================
-  // NEW: PAGINATION STATES
-  // ==========================================
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10 rows
+  const [itemsPerPage, setItemsPerPage] = useState(10); 
 
   const [editingId, setEditingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ show: false, actionType: '', clientId: null });
@@ -34,14 +28,13 @@ export default function LPOGVirtualOffice() {
 
   const [formData, setFormData] = useState(initialFormState);
 
-  // Role Check for Notification Bell
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
   const fetchClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPOG', {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, {
         headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' }
       });
       if (response.ok) {
@@ -55,17 +48,11 @@ export default function LPOGVirtualOffice() {
 
   useEffect(() => { fetchClients(); }, []);
 
-  // ==========================================
-  // 2. DYNAMIC DROPDOWN GENERATORS
-  // ==========================================
   const uniqueDurations = [...new Set(clients.map(c => c.duration))].filter(Boolean).sort();
   const uniqueRates = [...new Set(clients.map(c => Number(c.rate_per_month)))].filter(Boolean).sort((a,b) => a - b);
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
-  const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort(); // NEW
+  const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort(); 
 
-  // ==========================================
-  // 3. THE MASTER FILTER ENGINE
-  // ==========================================
   const filteredClients = useMemo(() => {
     return clients.filter(client => {
       const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -75,16 +62,12 @@ export default function LPOGVirtualOffice() {
       const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
       const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
       const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
-      const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; // NEW check
+      const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; 
 
       return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage;
     });
   }, [clients, searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage]);
 
-  // ==========================================
-  // NEW: PAGINATION LOGIC
-  // ==========================================
-  // Auto-reset to page 1 if any filter or search changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage, itemsPerPage]);
@@ -100,9 +83,6 @@ export default function LPOGVirtualOffice() {
     if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
   };
 
-  // ==========================================
-  // 4. CRUD ACTIONS
-  // ==========================================
   const handleAddNew = () => {
     setEditingId(null);
     setFormData(initialFormState);
@@ -139,7 +119,8 @@ export default function LPOGVirtualOffice() {
     if (actionType === 'DELETE') {
       try {
         const token = localStorage.getItem('token');
-        await fetch(`http://192.168.200.15:5000/api/virtual-offices/${clientId}`, {
+        // FIXED: Removed hardcoded IP
+        await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${clientId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -153,9 +134,12 @@ export default function LPOGVirtualOffice() {
       : formData.package_tier;
 
     const payload = { ...formData, package_tier: finalPackageTier, branch: 'LPOG' };
+    
+    // FIXED: Removed hardcoded IP
     const url = actionType === 'EDIT' 
-      ? `http://192.168.200.15:5000/api/virtual-offices/${clientId}` 
-      : 'http://192.168.200.15:5000/api/virtual-offices';
+      ? `http://${window.location.hostname}:5000/api/virtual-offices/${clientId}` 
+      : `http://${window.location.hostname}:5000/api/virtual-offices`;
+      
     const method = actionType === 'EDIT' ? 'PUT' : 'POST';
 
     try {
@@ -211,9 +195,6 @@ export default function LPOGVirtualOffice() {
           </div>
         </header>
 
-        {/* ========================================== */}
-        {/* ADVANCED SEARCH AND FILTER DASHBOARD       */}
-        {/* ========================================== */}
         <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4 shrink-0">
           <div className="w-full">
             <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
@@ -238,7 +219,6 @@ export default function LPOGVirtualOffice() {
               </select>
             </div>
 
-            {/* NEW: Package Tier Filter */}
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Package Tier</label>
               <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterPackage} onChange={(e) => setFilterPackage(e.target.value)}>
@@ -275,9 +255,6 @@ export default function LPOGVirtualOffice() {
           </div>
         </div>
 
-        {/* ========================================== */}
-        {/* THE DATA TABLE                             */}
-        {/* ========================================== */}
         <div className="rounded-xl bg-white shadow-sm border border-slate-100 flex flex-col flex-1 overflow-hidden">
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left text-sm text-slate-600">
@@ -342,9 +319,6 @@ export default function LPOGVirtualOffice() {
             </table>
           </div>
 
-          {/* ========================================== */}
-          {/* PAGINATION FOOTER CONTROLS                 */}
-          {/* ========================================== */}
           <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0">
             <div className="flex items-center gap-4 mb-4 md:mb-0">
               <span className="text-sm text-slate-500">
@@ -389,9 +363,6 @@ export default function LPOGVirtualOffice() {
         </div>
       </div>
 
-      {/* ========================================== */}
-      {/* FORM MODAL (Add / Edit)                    */}
-      {/* ========================================== */}
       {showFormModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-4xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -526,9 +497,6 @@ export default function LPOGVirtualOffice() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* GLOBAL CONFIRMATION MODAL                  */}
-      {/* ========================================== */}
       {confirmModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">

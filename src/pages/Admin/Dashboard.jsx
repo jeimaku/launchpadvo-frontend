@@ -30,9 +30,9 @@ export default function Dashboard() {
 
       // Fetch all data simultaneously
       const [paymentsRes, lpcRes, lpogRes] = await Promise.all([
-        fetch('http://192.168.200.15:5000/api/payments', { headers }),
-        fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPC', { headers }),
-        fetch('http://192.168.200.15:5000/api/virtual-offices?branch=LPOG', { headers })
+        fetch(`http://${window.location.hostname}:5000/api/payments`, { headers }),
+        fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPC`, { headers }),
+        fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, { headers })
       ]);
 
       if (paymentsRes.ok && lpcRes.ok && lpogRes.ok) {

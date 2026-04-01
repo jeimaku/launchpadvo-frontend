@@ -10,13 +10,13 @@ import md5 from 'md5';
 // Import modular components
 import EmailViewModal from '../../components/EmailViewModal'; 
 import ComposeEmailModal from '../../components/ComposeEmailModal'; 
-import AutomatedTemplatesModal from '../../components/AutomatedTemplatesModal'; // <-- IMPORT NEW MODAL
+import AutomatedTemplatesModal from '../../components/AutomatedTemplatesModal'; 
 
 export default function EmailCenter() {
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('inbox'); 
   const [showComposeModal, setShowComposeModal] = useState(false);
-  const [showAutoTemplatesModal, setShowAutoTemplatesModal] = useState(false); // <-- NEW STATE
+  const [showAutoTemplatesModal, setShowAutoTemplatesModal] = useState(false); 
   
   const [emailLogs, setEmailLogs] = useState([]);
   const [inboxEmails, setInboxEmails] = useState([]);
@@ -44,8 +44,8 @@ export default function EmailCenter() {
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
       const [logsResponse, inboxResponse] = await Promise.all([
-        fetch('http://192.168.200.15:5000/api/emails/logs', { headers }),
-        fetch('http://192.168.200.15:5000/api/emails/inbox', { headers })
+        fetch(`http://${window.location.hostname}:5000/api/emails/logs`, { headers }),
+        fetch(`http://${window.location.hostname}:5000/api/emails/inbox`, { headers })
       ]);
 
       if (logsResponse.ok && inboxResponse.ok) {
@@ -63,7 +63,7 @@ export default function EmailCenter() {
 
   useEffect(() => {
     fetchEmails();
-    const socket = io('http://192.168.200.15:5000');
+    const socket = io(`http://${window.location.hostname}:5000`);
     socket.on('incoming_email', () => {
       const currentRole = localStorage.getItem('userRole');
       if (['admin', 'manager', 'staff'].includes(currentRole)) {
@@ -87,7 +87,7 @@ export default function EmailCenter() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://192.168.200.15:5000/api/emails/delete/${id}?table=${table}`, {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/emails/delete/${id}?table=${table}`, {
         method: 'PUT', 
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
@@ -136,7 +136,8 @@ export default function EmailCenter() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
+    // FIXED: Changed d=mp to d=404 so it throws an error if no avatar exists, triggering the fallback
+    return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=404`;
   };
 
   const getFallbackAvatar = (email, name) => {
