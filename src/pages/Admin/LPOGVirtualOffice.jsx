@@ -28,6 +28,9 @@ export default function LPOGVirtualOffice() {
 
   const [formData, setFormData] = useState(initialFormState);
 
+  // NEW: Holds the auto-calculated breakdown for the UI preview
+  const [paymentSchedule, setPaymentSchedule] = useState(null);
+
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
 
@@ -71,6 +74,113 @@ export default function LPOGVirtualOffice() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus, filterDuration, filterRate, filterTerms, filterPackage, itemsPerPage]);
+
+
+  // ==========================================
+  // SMART DATE & AUTO-CALCULATION ENGINE
+  // ==========================================
+  useEffect(() => {
+    const { date_started, end_date, rate_per_month } = formData;
+
+    // --- PART 1: CALCULATE DURATION (Only needs Dates) ---
+    if (date_started && end_date) {
+      const startObj = new Date(date_started);
+      const endObj = new Date(end_date);
+
+      if (endObj > startObj) {
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const totalDays = Math.round((endObj - startObj) / msPerDay) + 1;
+        const calculatedMonths = Math.round(totalDays / 30.44); 
+        const newDurationString = `${calculatedMonths} mos`;
+        
+        if (formData.duration !== newDurationString) {
+            setFormData(prev => ({ ...prev, duration: newDurationString }));
+        }
+      }
+    }
+
+    // --- PART 2: CALCULATE FINANCIALS (Needs Dates, Rate, and Terms) ---
+    const rate = parseFloat(rate_per_month);
+    const terms = formData.payment_terms; 
+    
+    if (date_started && end_date && !isNaN(rate) && rate > 0) {
+      const startObj = new Date(date_started);
+      const endObj = new Date(end_date);
+
+      if (endObj <= startObj) {
+          setPaymentSchedule(null);
+          return;
+      }
+
+      const startYear = startObj.getFullYear();
+      const startMonth = startObj.getMonth();
+      const startDay = startObj.getDate();
+      const daysInStartMonth = new Date(startYear, startMonth + 1, 0).getDate();
+
+      const endYear = endObj.getFullYear();
+      const endMonth = endObj.getMonth();
+      const endDay = endObj.getDate();
+      const daysInEndMonth = new Date(endYear, endMonth + 1, 0).getDate();
+
+      let firstMonthAmount = rate;
+      let finalMonthAmount = rate;
+      let isProrated = false;
+
+      let fullMonthsBetween = (endYear - startYear) * 12 + (endMonth - startMonth) - 1;
+      if (fullMonthsBetween < 0) fullMonthsBetween = 0;
+
+      if (startDay !== 1 || endDay !== daysInEndMonth) {
+        isProrated = true;
+        
+        const activeDaysFirstMonth = daysInStartMonth - startDay + 1;
+        firstMonthAmount = (rate / daysInStartMonth) * activeDaysFirstMonth;
+
+        finalMonthAmount = (rate / daysInEndMonth) * endDay;
+        
+        if (startYear === endYear && startMonth === endMonth) {
+            const activeDays = endDay - startDay + 1;
+            firstMonthAmount = (rate / daysInStartMonth) * activeDays;
+            finalMonthAmount = 0;
+            fullMonthsBetween = 0;
+        }
+      }
+
+      const totalValue = firstMonthAmount + finalMonthAmount + (fullMonthsBetween * rate);
+
+      // Calculate the recurring installment amount based on terms
+      let installmentAmount = rate;
+      let installmentLabel = "Monthly";
+
+      if (terms === 'Quarterly') {
+          installmentAmount = rate * 3;
+          installmentLabel = "Quarterly";
+      } else if (terms === 'Semi-Annual') {
+          installmentAmount = rate * 6;
+          installmentLabel = "Semi-Annual";
+      } else if (terms === 'Annual') {
+          installmentAmount = rate * 12;
+          installmentLabel = "Annual";
+      } else if (terms === 'Full Payment') {
+          installmentAmount = totalValue; 
+          installmentLabel = "Upfront";
+      }
+
+      setPaymentSchedule({
+        isProrated,
+        firstMonthAmount,
+        recurringAmount: rate,
+        finalMonthAmount,
+        totalContractValue: totalValue,
+        monthsCount: fullMonthsBetween,
+        installmentAmount,
+        installmentLabel,
+        terms 
+      });
+
+    } else {
+      setPaymentSchedule(null);
+    }
+  }, [formData.date_started, formData.end_date, formData.rate_per_month, formData.payment_terms]);
 
   const actualItemsPerPage = itemsPerPage === 'All' ? filteredClients.length : Number(itemsPerPage);
   const totalPages = Math.ceil(filteredClients.length / (actualItemsPerPage || 1));
@@ -365,7 +475,7 @@ export default function LPOGVirtualOffice() {
 
       {showFormModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-4xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="w-full max-w-7xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
               <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Client Record' : 'Register LPOG Client'}</h3>
               <button onClick={() => setShowFormModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-xl">&times;</button>
@@ -377,7 +487,9 @@ export default function LPOGVirtualOffice() {
               </div>
             )}
 
-            <form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+<form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-8">
+               
+               {/* COLUMN 1: Client Details */}
                <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Client Details</h4>
                 <div>
@@ -389,7 +501,9 @@ export default function LPOGVirtualOffice() {
                   <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.contact_person_1} onChange={(e) => setFormData({...formData, contact_person_1: e.target.value})} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Contact Person 2</label>
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                    Contact Person 2 <span className="text-slate-400 font-normal ml-1">(Optional)</span>
+                  </label>
                   <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.contact_person_2} onChange={(e) => setFormData({...formData, contact_person_2: e.target.value})} />
                 </div>
                 <div>
@@ -397,11 +511,14 @@ export default function LPOGVirtualOffice() {
                   <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.email_1} onChange={(e) => setFormData({...formData, email_1: e.target.value})} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Email Address 2</label>
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                    Email Address 2 <span className="text-slate-400 font-normal ml-1">(Optional)</span>
+                  </label>
                   <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.email_2} onChange={(e) => setFormData({...formData, email_2: e.target.value})} />
                 </div>
               </div>
 
+              {/* COLUMN 2: Contract Info */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Contract Info</h4>
                 <div>
@@ -409,19 +526,22 @@ export default function LPOGVirtualOffice() {
                   <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.date_started} onChange={(e) => setFormData({...formData, date_started: e.target.value})} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Duration (e.g. 1 yr) *</label>
-                  <input required type="text" placeholder="e.g. 6 mos" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.duration} onChange={(e) => setFormData({...formData, duration: e.target.value})} />
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">End Date *</label>
+                  <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.end_date} onChange={(e) => setFormData({...formData, end_date: e.target.value})} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">End Date</label>
-                  <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.end_date} onChange={(e) => setFormData({...formData, end_date: e.target.value})} />
+                  <label className="mb-1 block text-xs font-semibold text-slate-700 flex justify-between">
+                    Calculated Duration <span className="text-blue-500 font-normal">Auto-filled</span>
+                  </label>
+                  <input type="text" readOnly placeholder="Select dates above..." className="w-full rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed" value={formData.duration} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">Remarks / Notes</label>
-                  <textarea rows="3" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})}></textarea>
+                  <textarea rows="4" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})}></textarea>
                 </div>
               </div>
 
+              {/* COLUMN 3: Billing & Status */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Billing & Status</h4>
                 <div>
@@ -433,6 +553,7 @@ export default function LPOGVirtualOffice() {
                     onChange={(e) => {
                       const selected = e.target.value;
                       let autoRate = ''; 
+                      // LPOG DEFAULT RATE IS 4500
                       if (selected === 'Virtual Office Package') autoRate = 4500; 
                       setFormData({
                           ...formData, package_tier: selected, rate_per_month: autoRate,
@@ -486,9 +607,75 @@ export default function LPOGVirtualOffice() {
                 </div>
               </div>
 
-              <div className="col-span-1 md:col-span-3 mt-4 flex justify-end gap-3 border-t pt-4">
+              {/* COLUMN 4: Formal Financial Summary */}
+              <div className="space-y-4">
+                <h4 className="font-bold text-slate-800 border-b pb-2">Financial Summary</h4>
+                
+                {paymentSchedule ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm animate-fade-in flex flex-col h-[calc(100%-2rem)]">
+                    <h5 className="text-sm font-bold text-slate-800 mb-1">Contract Valuation</h5>
+                    <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">
+                      Calculated based on the selected dates and monthly rate. Prorated amounts apply when starting or ending mid-month.
+                    </p>
+
+                    <div className="space-y-3 text-sm flex-1">
+                      {paymentSchedule.isProrated ? (
+                        <>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-600">First Month (Prorated):</span>
+                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.firstMonthAmount)}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-600">Standard Months ({paymentSchedule.monthsCount}x):</span>
+                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.recurringAmount)}/mo</span>
+                          </div>
+                          <div className="flex justify-between items-center pb-4 border-b border-slate-200">
+                            <span className="text-slate-600">Final Month (Prorated):</span>
+                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.finalMonthAmount)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex justify-between items-center pb-4 border-b border-slate-200">
+                          <span className="text-slate-600">Standard Billing ({paymentSchedule.monthsCount}x):</span>
+                          <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.recurringAmount)}/mo</span>
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-center pt-2 mb-4">
+                        <span className="font-bold text-slate-800">Total Contract Value:</span>
+                        <span className="text-xl font-black text-blue-700">{formatCurrency(paymentSchedule.totalContractValue)}</span>
+                      </div>
+
+                      {/* Dynamic Billing Schedule Indicator */}
+                      {paymentSchedule.terms && (
+                        <div className="mt-auto bg-slate-800 text-white p-3 rounded-lg border border-slate-700 shadow-inner">
+                           <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Billing Schedule</p>
+                           {paymentSchedule.terms === 'Full Payment' ? (
+                             <p className="text-sm font-medium">
+                               <span className="font-bold text-[#d2f34c]">100% Upfront</span>. No recurring invoices.
+                             </p>
+                           ) : (
+                             <div className="flex justify-between items-center">
+                               <span className="text-sm font-medium">{paymentSchedule.installmentLabel} Installments:</span>
+                               <span className="text-lg font-bold text-[#d2f34c]">{formatCurrency(paymentSchedule.installmentAmount)}</span>
+                             </div>
+                           )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 h-[calc(100%-2rem)] flex flex-col items-center justify-center text-center">
+                    <svg className="w-8 h-8 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    <p className="text-xs text-slate-500 font-medium">Enter Start Date, End Date, and Rate to view the financial breakdown.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ACTION BUTTONS: Spanning all 4 columns */}
+              <div className="col-span-1 md:col-span-4 mt-2 flex justify-end gap-3 border-t pt-5">
                 <button type="button" onClick={() => setShowFormModal(false)} className="rounded-lg px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
-                <button type="submit" className="rounded-lg bg-[#d2f34c] px-8 py-2.5 font-bold text-slate-900 hover:bg-[#b8d839] transition-colors">
+                <button type="submit" className="rounded-lg bg-[#d2f34c] px-8 py-2.5 font-bold text-slate-900 hover:bg-[#b8d839] transition-colors shadow-sm">
                   {editingId ? 'Update Client' : 'Save Client'}
                 </button>
               </div>
