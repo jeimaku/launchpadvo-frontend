@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import md5 from 'md5'; 
 import launchpadLogo from '../assets/launchpad-logo2.png'; 
+import launchpadBanner from '../assets/launchpad-logo-dark.png';
 
 export default function EmailViewModal({ email, onClose, formatExactDateTime, systemEmail }) {
   const [displayEmail, setDisplayEmail] = useState(email);
@@ -99,7 +100,7 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
     }
 
     const fileExt = att.filename?.split('.').pop()?.toUpperCase().substring(0, 4) || 'FILE';
-
+    
     return (
       <div key={index} className="group flex items-center justify-between p-3 border border-slate-200 bg-white rounded-xl shadow-sm hover:shadow-md hover:border-[#d2f34c] transition-all">
         <div className="flex items-center gap-3 min-w-0">
@@ -123,6 +124,12 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
         </button>
       </div>
     );
+  };
+
+  const renderSafeBody = (htmlContent) => {
+    if (!htmlContent) return '';
+    // FIXED: Now uses launchpadBanner instead of the square launchpadLogo
+    return htmlContent.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadBanner}"`);
   };
 
   return (
@@ -256,7 +263,7 @@ export default function EmailViewModal({ email, onClose, formatExactDateTime, sy
                 </div>
                 <div 
                   className="prose max-w-none text-slate-800 text-base leading-loose" 
-                  dangerouslySetInnerHTML={{ __html: displayEmail.body }} 
+                  dangerouslySetInnerHTML={{ __html: renderSafeBody(displayEmail.body) }} 
                 />
               </div>
             </div>

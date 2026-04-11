@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../../components/Sidebar';
 import NotificationBell from '../../components/NotificationBell'; 
 
@@ -20,10 +20,21 @@ export default function LPCVirtualOffice() {
   const [editingId, setEditingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ show: false, actionType: '', clientId: null });
 
+  // --- ADD THESE TWO LINES ---
+  const [docRequestModal, setDocRequestModal] = useState({ show: false, client: null });
+  const [actionAlert, setActionAlert] = useState({ show: false, message: '', isError: false });
+
+  // --- ADD THIS MISSING LINE! ---
+  const [isSendingDoc, setIsSendingDoc] = useState(false);
+
+  const [isImporting, setIsImporting] = useState(false);
+
   const initialFormState = {
     company_name: '', contact_person_1: '', contact_person_2: '', email_1: '', email_2: '',
     date_started: '', duration: '', end_date: '', package_tier: '', custom_package_name: '', 
-    rate_per_month: '', payment_info: '', payment_terms: '', contract_status: 'Active', remarks: ''
+    rate_per_month: '', payment_info: '', payment_terms: '', contract_status: 'Active', remarks: '',
+    auto_email_enabled: true, // NEW: Defaults to ON
+    documents_submitted: false // NEW: Defaults to OFF
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -191,6 +202,253 @@ export default function LPCVirtualOffice() {
   const indexOfFirstItem = indexOfLastItem - actualItemsPerPage;
   const currentItems = filteredClients.slice(indexOfFirstItem, indexOfLastItem);
 
+  // ==========================================
+  // PHASE 1: EXPORT & TEMPLATE ENGINE
+  // ==========================================
+  const exportToCSV = (data, filename) => {
+    if (!data || !data.length) return;
+    const headers = Object.keys(data[0]);
+    const csvRows = [headers.join(',')];
+
+    for (const row of data) {
+        const values = headers.map(header => {
+            const val = row[header] === null || row[header] === undefined ? '' : String(row[header]);
+            // Escape double quotes and wrap in quotes to handle commas inside text
+            return `"${val.replace(/"/g, '""')}"`; 
+        });
+        csvRows.push(values.join(','));
+    }
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
+  // ==========================================
+  // PHASE 2: SMART IMPORT LOGIC ENGINE
+  // ==========================================
+  const [importStaging, setImportStaging] = useState([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // 1. The Bulletproof CSV Parser (Handles commas inside text)
+  const parseCSV = (str) => {
+    const result = [];
+    let row = [];
+    let inQuotes = false;
+    let val = '';
+    for (let i = 0; i < str.length; i++) {
+        let char = str[i];
+        if (char === '"' && str[i+1] === '"') {
+            val += '"'; i++; 
+        } else if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            row.push(val.trim()); val = '';
+        } else if (char === '\n' && !inQuotes) {
+            row.push(val.trim()); result.push(row); row = []; val = '';
+        } else if (char !== '\r') {
+            val += char;
+        }
+    }
+    row.push(val.trim());
+    if (row.length > 0 || val !== '') result.push(row);
+    return result;
+  };
+
+  // 2. The Smart Sanitization Engine
+  const processImportData = (rows) => {
+    if (!rows || rows.length < 2) return [];
+    
+    // Normalize headers for fuzzy matching (lowercase, no spaces)
+    const headers = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    
+    const findCol = (keywords) => {
+        for (let i = 0; i < headers.length; i++) {
+            if (keywords.some(kw => headers[i].includes(kw))) return i;
+        }
+        return -1;
+    };
+
+    // Dictionary: Maps keywords to their column index
+    const colMap = {
+        company: findCol(['company', 'business', 'client']),
+        contact1: findCol(['contact1', 'person1', 'name', 'contact']),
+        contact2: findCol(['contact2', 'person2']),
+        email1: findCol(['email1', 'emailaddress', 'email']),
+        email2: findCol(['email2']),
+        start: findCol(['start', 'date']),
+        end: findCol(['end', 'expiry']),
+        pkg: findCol(['package', 'tier', 'service']),
+        rate: findCol(['rate', 'price', 'fee', 'amount', 'payment']),
+        terms: findCol(['term', 'schedule', 'billing']),
+        status: findCol(['status', 'state']),
+        remarks: findCol(['remark', 'note'])
+    };
+
+    const sanitizedData = [];
+    
+    for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.length < 2 || !r[colMap.company]) continue; // Skip empty rows
+
+        const safeGet = (idx) => idx !== -1 && r[idx] ? r[idx] : '';
+
+        // A. Package Smart-Router
+        let rawPkg = safeGet(colMap.pkg);
+        let finalPkg = '';
+        let customName = '';
+        if (rawPkg.toLowerCase().includes('virtual office')) finalPkg = 'Virtual Office Package';
+        else if (rawPkg.toLowerCase().includes('use of address')) finalPkg = 'Use of Address';
+        else if (rawPkg !== '') { finalPkg = 'Custom'; customName = rawPkg; }
+
+        // B. Financial Sanitizer (Strips ₱, commas, spaces)
+        let rawRate = safeGet(colMap.rate);
+        let cleanRate = rawRate.replace(/[^0-9.]/g, ''); 
+
+        // C. Date Parser
+        let formattedStart = '';
+        let formattedEnd = '';
+        try {
+            const s = safeGet(colMap.start);
+            const e = safeGet(colMap.end);
+            if (s) formattedStart = new Date(s).toISOString().split('T')[0];
+            if (e) formattedEnd = new Date(e).toISOString().split('T')[0];
+        } catch (e) { console.warn("Invalid date format in row", i); }
+
+        // D. Duration Auto-Calculator
+        let calcDuration = '';
+        if (formattedStart && formattedEnd) {
+            const sObj = new Date(formattedStart);
+            const eObj = new Date(formattedEnd);
+            if (eObj > sObj) {
+                const days = Math.round((eObj - sObj) / (1000*60*60*24)) + 1;
+                calcDuration = `${Math.round(days / 30.44)} mos`;
+            }
+        }
+
+        sanitizedData.push({
+            id: `import_${Date.now()}_${i}`, // Temporary Staging ID
+            company_name: safeGet(colMap.company),
+            contact_person_1: safeGet(colMap.contact1),
+            contact_person_2: safeGet(colMap.contact2),
+            email_1: safeGet(colMap.email1),
+            email_2: safeGet(colMap.email2),
+            date_started: formattedStart,
+            end_date: formattedEnd,
+            duration: calcDuration,
+            package_tier: finalPkg,
+            custom_package_name: customName,
+            rate_per_month: cleanRate,
+            payment_terms: safeGet(colMap.terms) || 'Monthly',
+            contract_status: safeGet(colMap.status) || 'Active',
+            remarks: safeGet(colMap.remarks),
+            auto_email_enabled: true,
+            documents_submitted: false,
+            // Track missing required fields for the Phase 3 Staging Modal
+            hasErrors: !safeGet(colMap.company) || !formattedStart || !cleanRate
+        });
+    }
+    
+    return sanitizedData;
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        const text = evt.target.result;
+        const parsedRows = parseCSV(text);
+        const cleanedData = processImportData(parsedRows);
+        
+        setImportStaging(cleanedData);
+        setShowImportModal(true); // Triggers Phase 3
+        e.target.value = null; // Reset input 
+    };
+    reader.readAsText(file);
+  };
+
+  // 3. Execution Function (Sends valid rows to backend)
+  const executeBulkImport = async () => {
+    // Only extract rows that passed the logic engine without errors
+    const validClients = importStaging.filter(c => !c.hasErrors);
+    if (validClients.length === 0) return;
+
+    setIsImporting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ clients: validClients, branch: 'LPC' }) // NOTE: Change to 'LPOG' in LPOGVirtualOffice.jsx
+      });
+
+      if (!response.ok) throw new Error('Failed to import clients.');
+
+      await fetchClients(); // Refresh the main table
+      setShowImportModal(false);
+      setImportStaging([]);
+      setActionAlert({ show: true, message: `Successfully imported ${validClients.length} clients!`, isError: false });
+    } catch (err) {
+      setActionAlert({ show: true, message: err.message, isError: true });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExportData = () => {
+    if (filteredClients.length === 0) {
+      setActionAlert({ show: true, message: 'No data to export based on current filters.', isError: true });
+      return;
+    }
+
+    // Clean and format the data before exporting
+    const exportData = filteredClients.map(c => ({
+      'Company Name': c.company_name || '',
+      'Contact Person 1': c.contact_person_1 || '',
+      'Contact Person 2': c.contact_person_2 || '',
+      'Email 1': c.email_1 || '',
+      'Email 2': c.email_2 || '',
+      'Date Started': c.date_started ? c.date_started.split('T')[0] : '',
+      'End Date': c.end_date ? c.end_date.split('T')[0] : '',
+      'Duration': c.duration || '',
+      'Package Tier': c.package_tier || '',
+      'Agreed Rate': c.rate_per_month || '',
+      'Payment Terms': c.payment_terms || '',
+      'Current Status': c.contract_status || '',
+      'Remarks': c.remarks || ''
+    }));
+
+    exportToCSV(exportData, `Launchpad_Clients_${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
+  const handleDownloadTemplate = () => {
+    // The "Golden Template" with one dummy row to show them how to format it
+    const templateData = [{
+      'Company Name': 'Example Corp',
+      'Contact Person 1': 'John Doe',
+      'Contact Person 2': 'Jane Doe (Optional)',
+      'Email 1': 'john@example.com',
+      'Email 2': 'jane@example.com (Optional)',
+      'Date Started (YYYY-MM-DD)': '2024-01-01',
+      'End Date (YYYY-MM-DD)': '2025-01-01',
+      'Package Tier': 'Virtual Office Package',
+      'Agreed Rate': '3500',
+      'Payment Terms': 'Monthly',
+      'Current Status': 'Active',
+      'Remarks': 'Notes go here'
+    }];
+    exportToCSV(templateData, 'Launchpad_Import_Template.csv');
+  };
+
+
   const handlePageChange = (direction) => {
     if (direction === 'prev' && currentPage > 1) setCurrentPage(currentPage - 1);
     if (direction === 'next' && currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -204,6 +462,13 @@ export default function LPCVirtualOffice() {
   };
 
   const handleEditClick = (client) => {
+
+    setFormData({
+       ...client,
+       auto_email_enabled: client.auto_email_enabled === 1 || client.auto_email_enabled === true,
+       documents_submitted: client.documents_submitted === 1 || client.documents_submitted === true
+    });
+
     setEditingId(client.id);
     let isCustom = client.package_tier.startsWith('Custom:');
     let baseTier = isCustom ? 'Custom' : client.package_tier;
@@ -277,6 +542,44 @@ export default function LPCVirtualOffice() {
     }
   };
 
+  // --- 1. TRIGGER THE CUSTOM MODAL ---
+  const triggerDocRequest = (client) => {
+    setDocRequestModal({ show: true, client });
+  };
+
+  // --- 2. EXECUTE THE ACTUAL SEND ---
+  const executeDocRequest = async () => {
+    const client = docRequestModal.client;
+    if (!client) return;
+
+    // Close the confirm modal immediately and start loading
+    setDocRequestModal({ show: false, client: null });
+    setIsSendingDoc(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://${window.location.hostname}:5000/api/emails/trigger-document-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ clientId: client.id, branch: 'LPC' }) // CHANGE TO 'LPOG' IN LPOG FILE!
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to send email.');
+      
+      // THE NEW SUCCESS MESSAGE PROMPT
+      setActionAlert({ 
+        show: true, 
+        message: "Document Request sent! Please check the 'Sent Emails' section in the Email Center to confirm.", 
+        isError: false 
+      });
+    } catch (error) {
+      setActionAlert({ show: true, message: error.message, isError: true });
+    } finally {
+      setIsSendingDoc(false);
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -299,9 +602,45 @@ export default function LPCVirtualOffice() {
           </div>
           <div className="flex items-center gap-4">
             {canViewNotifications && <NotificationBell />}
+            
+            {/* NEW EXPORT/IMPORT BUTTON GROUP */}
+            <div className="flex bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden h-10">
+              
+              {/* HIDDEN FILE INPUT TRIGGERED BY THE IMPORT BUTTON */}
+              <input 
+                type="file" 
+                accept=".csv" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                className="hidden" 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                title="Smart Import Data from CSV"
+                className="px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 border-r border-slate-200 flex items-center gap-2 transition-colors"
+              >
+                📂 Import
+              </button>
+
+              <button 
+                onClick={handleExportData}
+                title="Export Filtered Data to CSV"
+                className="px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 border-r border-slate-200 flex items-center gap-2 transition-colors"
+              >
+                📥 Export
+              </button>
+              <button 
+                onClick={handleDownloadTemplate}
+                title="Download Blank CSV Template"
+                className="px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+              >
+                📄 Template
+              </button>
+            </div>
+
             <button 
               onClick={handleAddNew}
-              className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm"
+              className="h-10 rounded-lg bg-[#d2f34c] px-6 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm flex items-center"
             >
               + Add New Client
             </button>
@@ -429,7 +768,17 @@ export default function LPCVirtualOffice() {
                           {client.contract_status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 flex items-center justify-center gap-2">
+                        <td className="px-6 py-4 flex items-center justify-center gap-2">
+                        {/* NEW QUICK ACTION BUTTON */}
+                        <button 
+                          onClick={() => triggerDocRequest(client)}
+                          disabled={isSendingDoc || client.documents_submitted}
+                          className={`p-1.5 rounded transition-colors ${client.documents_submitted ? 'text-slate-300 cursor-not-allowed' : 'text-amber-500 hover:bg-amber-50'}`} 
+                          title={client.documents_submitted ? "Documents already submitted" : "Send Document Request Email"}
+                        >
+                          📄
+                        </button>
+                        
                         <button 
                           onClick={() => handleEditClick(client)}
                           className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-colors" title="Edit"
@@ -627,9 +976,51 @@ export default function LPCVirtualOffice() {
                     <option value="Annual">Annual</option>
                   </select>
                 </div>
+
+                {/* NEW: Automation Controls */}
+                <div className="pt-4 mt-2 border-t border-slate-200 space-y-3">
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">System Automation</p>
+                   
+                   {/* Kill Switch Toggle */}
+                   <label className="flex items-start gap-3 cursor-pointer group">
+                     <div className="relative flex items-center justify-center shrink-0 mt-0.5">
+                       <input 
+                         type="checkbox" 
+                         className="peer sr-only" 
+                         checked={formData.auto_email_enabled}
+                         onChange={(e) => setFormData({...formData, auto_email_enabled: e.target.checked})}
+                       />
+                       <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#b8d839]"></div>
+                     </div>
+                     <div>
+                       <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Enable Automated Emails</p>
+                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">If unchecked, this client will NOT receive renewal or termination warnings.</p>
+                     </div>
+                   </label>
+
+                   {/* Document Tracker Checkbox */}
+                   <label className="flex items-start gap-3 cursor-pointer group pt-2">
+                     <div className="relative flex items-center justify-center shrink-0 mt-0.5">
+                       <input 
+                         type="checkbox" 
+                         className="peer sr-only"
+                         checked={formData.documents_submitted}
+                         onChange={(e) => setFormData({...formData, documents_submitted: e.target.checked})}
+                       />
+                       <div className="w-5 h-5 bg-white border-2 border-slate-300 rounded flex items-center justify-center peer-checked:bg-blue-500 peer-checked:border-blue-500 transition-colors">
+                         <svg className={`w-3 h-3 text-white ${formData.documents_submitted ? 'opacity-100' : 'opacity-0'} transition-opacity`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                       </div>
+                     </div>
+                     <div>
+                       <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Company Documents Submitted</p>
+                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Check this once documents are surrendered. Disables the manual document request button.</p>
+                     </div>
+                   </label>
+                </div>
+
               </div>
 
-{/* COLUMN 4: Formal Financial Summary */}
+              {/* COLUMN 4: Formal Financial Summary */}
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Financial Summary</h4>
                 
@@ -727,6 +1118,145 @@ export default function LPCVirtualOffice() {
                 Yes, Proceed
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- DOCUMENT REQUEST CONFIRMATION MODAL --- */}
+      {docRequestModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl text-center animate-fade-in">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 mb-6 shadow-inner border border-blue-100">
+              <span className="text-4xl">📄</span>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Send Document Request?</h3>
+            <p className="text-slate-500 mb-8 text-base font-medium leading-relaxed">
+              You are about to email <strong className="text-slate-800">{docRequestModal.client?.company_name}</strong> to officially request updated company documents.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setDocRequestModal({ show: false, client: null })} 
+                className="flex-1 rounded-xl px-6 py-3 font-bold text-slate-600 hover:bg-slate-100 transition-colors bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={executeDocRequest} 
+                className="flex-1 rounded-xl px-6 py-3 font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all hover:-translate-y-0.5"
+              >
+                Yes, Send Email
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ACTION ALERT (SUCCESS/ERROR) MODAL --- */}
+      {actionAlert.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center border border-slate-100 animate-fade-in">
+            <div className={`mx-auto flex items-center justify-center h-20 w-20 rounded-full mb-6 shadow-inner ${actionAlert.isError ? 'bg-rose-100 text-rose-500' : 'bg-emerald-100 text-emerald-500'}`}>
+              <span className="text-4xl">{actionAlert.isError ? '❌' : '✅'}</span>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">{actionAlert.isError ? 'Error' : 'Success'}</h3>
+            <p className="text-slate-500 font-medium text-base mb-8 leading-relaxed">{actionAlert.message}</p>
+            <button 
+              onClick={() => setActionAlert({ show: false, message: '', isError: false })} 
+              className="w-full px-5 py-3 rounded-xl font-bold text-slate-900 bg-[#d2f34c] hover:bg-[#b8d839] shadow-sm transition-all text-sm uppercase tracking-wide hover:-translate-y-0.5"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- PHASE 3: IMPORT STAGING / REVIEW MODAL --- */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-6xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fade-in">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                  <span>📥</span> Review Import Data
+                </h3>
+                <p className="text-slate-500 font-medium text-sm mt-1">
+                  Please review the sanitized records below. Rows with missing required fields are highlighted in <strong className="text-rose-500">red</strong> and will be skipped.
+                </p>
+              </div>
+              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-3xl">&times;</button>
+            </div>
+
+            {/* The Review Grid */}
+            <div className="flex-1 overflow-auto p-6 bg-slate-50/50">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap">
+                  <thead className="bg-slate-100 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3 font-bold">Status</th>
+                      <th className="px-4 py-3 font-bold">Company Name</th>
+                      <th className="px-4 py-3 font-bold">Email</th>
+                      <th className="px-4 py-3 font-bold">Package</th>
+                      <th className="px-4 py-3 font-bold">Dates</th>
+                      <th className="px-4 py-3 font-bold">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {importStaging.map((row, idx) => (
+                      <tr key={idx} className={row.hasErrors ? 'bg-rose-50/50' : 'hover:bg-slate-50 transition-colors'}>
+                        <td className="px-4 py-3">
+                          {row.hasErrors ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-100 px-2 py-1 rounded-md"><span className="text-sm">⚠️</span> Missing Data</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md"><span className="text-sm">✅</span> Ready</span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-3 font-bold ${row.hasErrors && !row.company_name ? 'text-rose-500' : 'text-slate-800'}`}>
+                          {row.company_name || 'Missing Name'}
+                        </td>
+                        <td className="px-4 py-3 text-blue-600">{row.email_1 || '-'}</td>
+                        <td className="px-4 py-3 font-medium text-slate-700">
+                          {row.package_tier === 'Custom' ? <span className="text-blue-600 font-bold">Custom: {row.custom_package_name}</span> : row.package_tier}
+                        </td>
+                        <td className={`px-4 py-3 text-xs ${row.hasErrors && (!row.date_started || !row.end_date) ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
+                          {row.date_started || '?'} to {row.end_date || '?'}
+                        </td>
+                        <td className={`px-4 py-3 font-bold ${row.hasErrors && !row.rate_per_month ? 'text-rose-500' : 'text-slate-800'}`}>
+                          ₱{row.rate_per_month || '0'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer (Counters & Execution) */}
+            <div className="p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 shadow-[0_-4px_15px_rgba(0,0,0,0.03)] z-10">
+              <div className="flex gap-6">
+                <div className="text-sm bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-lg flex flex-col items-center">
+                   <span className="text-[10px] uppercase font-black text-emerald-600/70 tracking-wider">Valid Rows</span>
+                   <span className="font-black text-emerald-600 text-xl">{importStaging.filter(r => !r.hasErrors).length}</span>
+                </div>
+                <div className="text-sm bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg flex flex-col items-center">
+                   <span className="text-[10px] uppercase font-black text-rose-500/70 tracking-wider">Skipped</span>
+                   <span className="font-black text-rose-500 text-xl">{importStaging.filter(r => r.hasErrors).length}</span>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button onClick={() => setShowImportModal(false)} className="rounded-xl px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+                <button 
+                  onClick={executeBulkImport} 
+                  disabled={isImporting || importStaging.filter(r => !r.hasErrors).length === 0}
+                  className="rounded-xl bg-[#d2f34c] px-8 py-3 text-sm font-black text-slate-900 hover:bg-[#b8d839] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide flex items-center gap-2"
+                >
+                  {isImporting ? 'Importing...' : `Confirm & Import ${importStaging.filter(r => !r.hasErrors).length} Clients`}
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

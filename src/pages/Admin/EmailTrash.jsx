@@ -8,7 +8,6 @@ import NotificationBell from '../../components/NotificationBell';
 import EmailViewModal from '../../components/EmailViewModal';
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 
-// UPDATED: Hardcoded to your specific IP to match the rest of the application
 const API_URL = `http://${window.location.hostname}:5000`;
 
 export default function EmailTrash() {
@@ -22,6 +21,9 @@ export default function EmailTrash() {
   const [deletePrompt, setDeletePrompt] = useState({ isOpen: false, id: null, table: null });
   const [restorePrompt, setRestorePrompt] = useState({ isOpen: false, id: null, table: null });
   const [alertPrompt, setAlertPrompt] = useState({ isOpen: false, message: '', isError: false });
+
+  // NEW: Search State
+  const [searchTerm, setSearchTerm] = useState('');
 
   const systemEmail = "lptest.renewal@gmail.com";
 
@@ -146,6 +148,13 @@ export default function EmailTrash() {
     }
   };
 
+  // NEW: Search Filtering Logic
+  const filteredTrash = trashItems.filter(e => 
+    e.subject.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.recipient.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.sender.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const getEmailSnippet = (htmlString) => {
     if (!htmlString) return '';
     let text = htmlString.replace(/<[^>]*>?/gm, ' ');
@@ -159,7 +168,6 @@ export default function EmailTrash() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    // UPDATED: Changed d=404 to d=mp (Mystery Person fallback)
     return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
   };
 
@@ -197,19 +205,41 @@ export default function EmailTrash() {
           <EmailSidebar onCompose={() => setShowComposeModal(true)} counts={emailCounts} />
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
-            <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 shrink-0">
+            
+            {/* Header Area with Search */}
+            <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
                 <span className="text-3xl">🗑️</span> Recently Deleted
               </h2>
+
+              {/* NEW: Search Input */}
+              <div className="relative w-full max-w-md ml-auto">
+                <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <input 
+                  type="text" 
+                  placeholder="Search trash..." 
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {trashItems.length === 0 && !loading ? (
-                <div className="text-center text-slate-400 font-medium py-16 text-xl">
-                  No deleted emails found.
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              {filteredTrash.length === 0 && !loading ? (
+                <div className="text-center text-slate-400 font-medium py-16 flex flex-col items-center justify-center">
+                  <svg className="w-16 h-16 text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <p className="text-xl text-slate-500 font-bold mb-1">
+                    {searchTerm ? "No matching emails found in trash." : "No deleted emails found."}
+                  </p>
                 </div>
               ) : (
-                trashItems.map((item) => (
+                filteredTrash.map((item) => (
                   <div 
                     key={`${item.source}-${item.id}`} 
                     onClick={() => setSelectedEmail({ 

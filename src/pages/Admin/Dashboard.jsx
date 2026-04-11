@@ -1,23 +1,19 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
-import NotificationBell from '../../components/NotificationBell'; // <-- IMPORT YOUR NEW COMPONENT
+import NotificationBell from '../../components/NotificationBell';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
-    totalRevenue: 0, pendingRevenue: 0, activeClients: 0, expiringSoon: 0
+    activeClients: 0, expiringSoon: 0, automatedEmails: 0, manualEmails: 0
   });
-  const [revenueByBranch, setRevenueByBranch] = useState([]);
-  const [clientStatusData, setClientStatusData] = useState([]);
-  const [recentPayments, setRecentPayments] = useState([]);
+  const [branchData, setBranchData] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [actionNeededClients, setActionNeededClients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const userName = localStorage.getItem('userName') || 'User';
-  const userRole = localStorage.getItem('userRole') || 'staff';
   
-  // Role-based booleans
-  const isManagement = ['admin', 'manager'].includes(userRole);
-
   useEffect(() => {
     fetchDashboardData();
   }, []);
@@ -28,198 +24,257 @@ export default function Dashboard() {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // Fetch all data simultaneously
-      const [paymentsRes, lpcRes, lpogRes] = await Promise.all([
-        fetch(`http://${window.location.hostname}:5000/api/payments`, { headers }),
+      // Fetch all operational data simultaneously
+      const [lpcRes, lpogRes, logsRes] = await Promise.all([
         fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPC`, { headers }),
-        fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, { headers })
+        fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, { headers }),
+        fetch(`http://${window.location.hostname}:5000/api/emails/logs`, { headers })
       ]);
 
-      if (paymentsRes.ok && lpcRes.ok && lpogRes.ok) {
-        const payments = await paymentsRes.json();
-        const clients = [...(await lpcRes.json()), ...(await lpogRes.json())];
+      if (lpcRes.ok && lpogRes.ok && logsRes.ok) {
+        const lpcClients = await lpcRes.json();
+        const lpogClients = await lpogRes.json();
+        const allClients = [...lpcClients, ...lpogClients];
+        const emailLogs = await logsRes.json();
 
-        // 1. Calculate Top-Level Stats
-        const verifiedPayments = payments.filter(p => p.status === 'Verified');
-        const pendingPayments = payments.filter(p => p.status === 'Pending');
+        // 1. Calculate Operational KPIs
+        const activeCount = allClients.filter(c => c.contract_status === 'Active').length;
+        const expiringCount = allClients.filter(c => ['Pending Renewal', 'Expired'].includes(c.contract_status)).length;
+        
+        const automatedCount = emailLogs.filter(log => log.type === 'Automated').length;
+        const manualCount = emailLogs.filter(log => log.type === 'Manual').length;
         
         setStats({
-          totalRevenue: verifiedPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0),
-          pendingRevenue: pendingPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0),
-          activeClients: clients.filter(c => c.contract_status === 'Active').length,
-          expiringSoon: clients.filter(c => c.contract_status === 'Expiring').length
+          activeClients: activeCount,
+          expiringSoon: expiringCount,
+          automatedEmails: automatedCount,
+          manualEmails: manualCount
         });
 
-        // 2. Format Data for Bar Chart (Revenue by Branch)
-        const lpcRev = verifiedPayments.filter(p => p.branch === 'LPC').reduce((sum, p) => sum + Number(p.amount_paid), 0);
-        const lpogRev = verifiedPayments.filter(p => p.branch === 'LPOG').reduce((sum, p) => sum + Number(p.amount_paid), 0);
-        setRevenueByBranch([
-          { name: 'Commercenter (LPC)', revenue: lpcRev },
-          { name: 'One Griffinstone (LPOG)', revenue: lpogRev }
+        // 2. Format Data for Branch Distribution Chart
+        setBranchData([
+          { name: 'Commercenter (LPC)', clients: lpcClients.length, color: '#1e293b' },
+          { name: 'One Griffinstone (LPOG)', clients: lpogClients.length, color: '#d2f34c' } 
         ]);
 
-        // 3. Format Data for Pie Chart (Client Status)
-        const activeCount = clients.filter(c => c.contract_status === 'Active').length;
-        const expiredCount = clients.filter(c => c.contract_status === 'Expired').length;
-        setClientStatusData([
-          { name: 'Active', value: activeCount, color: '#d2f34c' }, // Lime Green
-          { name: 'Expired/Inactive', value: expiredCount, color: '#94a3b8' } // Slate 400
-        ]);
+        // 3. Get Recent System Activity (Increased slice to 20 to utilize the new scrollbar)
+        setRecentActivity(emailLogs.slice(0, 20));
 
-        // 4. Get Recent 5 Payments for the quick table
-        setRecentPayments(payments.slice(0, 5));
+        // 4. Get Clients Needing Immediate Action
+        const priorityClients = allClients
+          .filter(c => ['Pending Renewal', 'Expired'].includes(c.contract_status))
+          .sort((a, b) => new Date(a.end_date) - new Date(b.end_date))
+          .slice(0, 5);
+        
+        setActionNeededClients(priorityClients);
       }
     } catch (error) {
-      console.error("Error loading dashboard:", error);
+      console.error("Error loading operational dashboard:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formatCurrency = (amount) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
-
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans">
       <Sidebar />
 
-      <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen">
+      <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen custom-scrollbar">
         
         {/* HEADER SECTION */}
         <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-black text-slate-800 tracking-tight">Overview</h2>
-            <p className="text-slate-500 mt-1 font-medium">Welcome back, {userName}. Here is what's happening today.</p>
+            <h2 className="text-3xl font-black text-slate-800 tracking-tight">Operations Overview</h2>
+            <p className="text-slate-500 mt-1 text-sm font-medium">Welcome back, {userName}. Here is your daily operational brief.</p>
           </div>
           
-          <div className="flex items-center gap-3 relative">
-            
-            {/* Live Data Badge */}
-            <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 shadow-sm flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-              Live Data
-            </span>
-
-            {/* ---> RENDER THE NEW COMPONENT HERE <--- */}
+          <div className="flex items-center gap-4 relative">
+            <div className="px-3 py-1.5 bg-white border border-slate-200 rounded-md text-xs font-semibold text-slate-600 shadow-sm flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              System Live
+            </div>
             <NotificationBell />
-
           </div>
         </header>
 
         {isLoading ? (
-          <div className="h-64 flex items-center justify-center text-slate-400 font-bold">Loading Analytics...</div>
+          <div className="h-64 flex items-center justify-center text-slate-400 font-medium text-sm">Loading operational data...</div>
         ) : (
           <div className="space-y-6 animate-fade-in">
             
             {/* ========================================== */}
-            {/* KPI CARDS (Role Based Display)             */}
+            {/* COLORFUL OPERATIONAL KPI CARDS             */}
             {/* ========================================== */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               
-              {/* Only Management sees the money totals */}
-              {isManagement && (
-                <>
-                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Verified Revenue</p>
-                    <p className="text-3xl font-black text-slate-800">{formatCurrency(stats.totalRevenue)}</p>
-                  </div>
-                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <p className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Pending Verification</p>
-                    <p className="text-3xl font-black text-slate-800">{formatCurrency(stats.pendingRevenue)}</p>
-                  </div>
-                </>
-              )}
+              {/* Active Contracts - Emerald Accent */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-emerald-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Active Contracts</p>
+                  <p className="text-3xl font-black text-slate-800">{stats.activeClients}</p>
+                </div>
+                <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500 shadow-inner">
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                </div>
+              </div>
 
-              {/* Staff and Management see client metrics */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                <div className="absolute right-0 top-0 h-full w-2 bg-[#d2f34c]"></div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Active Contracts</p>
-                <p className="text-3xl font-black text-slate-800">{stats.activeClients}</p>
+              {/* Expiring / Action Needed - Orange Accent */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-orange-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Expiring Soon</p>
+                  <p className="text-3xl font-black text-slate-800">{stats.expiringSoon}</p>
+                </div>
+                <div className="p-3 bg-orange-50 rounded-xl text-orange-500 shadow-inner">
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
               </div>
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                <div className="absolute right-0 top-0 h-full w-2 bg-red-400"></div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Expiring / Action Needed</p>
-                <p className="text-3xl font-black text-slate-800">{stats.expiringSoon}</p>
+
+              {/* Automated Emails - Purple Accent */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-purple-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Automated Emails</p>
+                  <p className="text-3xl font-black text-slate-800">{stats.automatedEmails}</p>
+                </div>
+                <div className="p-3 bg-purple-50 rounded-xl text-purple-500 shadow-inner">
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </div>
               </div>
+
+              {/* Manual Quick Actions - Blue Accent */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-blue-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Manual Actions</p>
+                  <p className="text-3xl font-black text-slate-800">{stats.manualEmails}</p>
+                </div>
+                <div className="p-3 bg-blue-50 rounded-xl text-blue-500 shadow-inner">
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </div>
+              </div>
+
             </div>
 
             {/* ========================================== */}
-            {/* CHARTS ROW (Management Only)               */}
+            {/* CHARTS ROW                                 */}
             {/* ========================================== */}
-            {isManagement && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Bar Chart: Revenue by Branch */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-6">Revenue by Facility</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1} debounce={50}>
-                      <BarChart data={revenueByBranch} margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
-                        <YAxis tickFormatter={(val) => `₱${val.toLocaleString()}`} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
-                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} formatter={(value) => formatCurrency(value)} />
-                        <Bar dataKey="revenue" fill="#1e293b" radius={[4, 4, 0, 0]} barSize={60} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Priority Action Table */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-2 flex flex-col overflow-hidden">
+                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Contract Action List</h3>
+                  <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2.5 py-1 rounded-md uppercase tracking-wider border border-orange-200">Expiring Soon</span>
                 </div>
-
-                {/* Pie Chart: Client Health */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center">
-                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-2 w-full text-left">Portfolio Health</h3>
-                  <div className="h-48 w-full mt-4">
-                    <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1} debounce={50}>
-                      <PieChart>
-                        <Pie data={clientStatusData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
-                          {clientStatusData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex gap-4 mt-6">
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#d2f34c]"></span><span className="text-xs font-bold text-slate-600">Active</span></div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-slate-400"></span><span className="text-xs font-bold text-slate-600">Inactive</span></div>
-                  </div>
+                <div className="overflow-x-auto flex-1 custom-scrollbar">
+                  <table className="w-full text-left text-sm whitespace-nowrap">
+                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4 font-bold">Company</th>
+                        <th className="px-6 py-4 font-bold">Branch</th>
+                        <th className="px-6 py-4 font-bold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {actionNeededClients.length > 0 ? (
+                        actionNeededClients.map(client => (
+                          <tr key={client.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-slate-900">{client.company_name}</td>
+                            <td className="px-6 py-4 text-slate-500 font-medium">{client.branch}</td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${
+                                client.contract_status === 'Expired' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-orange-50 text-orange-600 border-orange-200'
+                              }`}>
+                                {client.contract_status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-400 font-medium">All clear. No pending contract expirations.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            )}
+
+              {/* Pie Chart: Portfolio Distribution */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-between">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest w-full text-left">Virtual Office Tracking</h3>
+                <div className="h-48 w-full mt-4">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
+                    <PieChart>
+                      <Pie data={branchData} cx="50%" cy="50%" innerRadius={65} outerRadius={80} paddingAngle={2} dataKey="clients" stroke="none">
+                        {branchData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', fontWeight: 'bold'}} 
+                        formatter={(value) => [`${value} Clients`, 'Count']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-col gap-3 mt-6 w-full pt-4 border-t border-slate-100">
+                  {branchData.map(branch => (
+                    <div key={branch.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: branch.color }}></span>
+                        <span className="text-xs font-bold text-slate-600">{branch.name}</span>
+                      </div>
+                      <span className="text-sm font-black text-slate-900">{branch.clients}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
 
             {/* ========================================== */}
-            {/* RECENT ACTIVITY TABLE                      */}
+            {/* SCROLLABLE SYSTEM AUDIT TRAIL              */}
             {/* ========================================== */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Recent Financial Activity</h3>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+              <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-20">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">System Activity Log</h3>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">Audit trail of outgoing communications</p>
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm min-w-[600px]">
-                  <thead className="bg-slate-50 text-slate-500">
+              
+              {/* NEW SCROLLABLE WRAPPER */}
+              <div className="overflow-x-auto overflow-y-auto max-h-[400px] custom-scrollbar relative">
+                <table className="w-full text-left text-sm whitespace-nowrap min-w-[600px]">
+                  {/* STICKY HEADER */}
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                     <tr>
-                      <th className="px-6 py-4 font-semibold">Date</th>
-                      <th className="px-6 py-4 font-semibold">Client</th>
-                      {isManagement && <th className="px-6 py-4 font-semibold">Amount</th>}
-                      <th className="px-6 py-4 font-semibold">Status</th>
+                      <th className="px-6 py-4 font-bold">Timestamp</th>
+                      <th className="px-6 py-4 font-bold">Trigger Type</th>
+                      <th className="px-6 py-4 font-bold">Recipient</th>
+                      <th className="px-6 py-4 font-bold">Subject</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {recentPayments.length > 0 ? (
-                      recentPayments.map(payment => (
-                        <tr key={payment.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-slate-600">{new Date(payment.payment_date).toLocaleDateString()}</td>
-                          <td className="px-6 py-4 font-bold text-slate-800">{payment.company_name}</td>
-                          {isManagement && <td className="px-6 py-4 font-mono text-slate-700">{formatCurrency(payment.amount_paid)}</td>}
-                          <td className="px-6 py-4">
-                            {payment.status === 'Pending' && <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-bold">Pending</span>}
-                            {payment.status === 'Verified' && <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Verified</span>}
-                            {payment.status === 'Voided' && <span className="px-2 py-1 bg-slate-200 text-slate-600 rounded text-xs font-bold">Voided</span>}
+                    {recentActivity.length > 0 ? (
+                      recentActivity.map(log => (
+                        <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-4 text-slate-500 text-xs font-medium">
+                            {new Date(log.sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
                           </td>
+                          <td className="px-6 py-4">
+                             <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border ${
+                               log.type === 'Automated' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-blue-50 text-blue-600 border-blue-200'
+                             }`}>
+                               {log.type}
+                             </span>
+                          </td>
+                          <td className="px-6 py-4 font-bold text-slate-700">{log.recipient_email}</td>
+                          <td className="px-6 py-4 text-slate-500 font-medium truncate max-w-xs" title={log.subject}>{log.subject}</td>
                         </tr>
                       ))
                     ) : (
-                      <tr><td colSpan={isManagement ? 4 : 3} className="px-6 py-8 text-center text-slate-500">No recent activity found.</td></tr>
+                      <tr><td colSpan={4} className="px-6 py-16 text-center text-slate-400 font-medium">No system activity logged yet.</td></tr>
                     )}
                   </tbody>
                 </table>

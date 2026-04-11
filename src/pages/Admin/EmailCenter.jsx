@@ -7,7 +7,6 @@ import NotificationBell from '../../components/NotificationBell';
 import launchpadLogo from '../../assets/launchpad-logo2.png';
 import md5 from 'md5'; 
 
-// Import modular components
 import EmailViewModal from '../../components/EmailViewModal'; 
 import ComposeEmailModal from '../../components/ComposeEmailModal'; 
 import AutomatedTemplatesModal from '../../components/AutomatedTemplatesModal'; 
@@ -17,6 +16,9 @@ export default function EmailCenter() {
   const [activeTab, setActiveTab] = useState('inbox'); 
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [showAutoTemplatesModal, setShowAutoTemplatesModal] = useState(false); 
+  
+  // NEW: Search State
+  const [searchTerm, setSearchTerm] = useState('');
   
   const [emailLogs, setEmailLogs] = useState([]);
   const [inboxEmails, setInboxEmails] = useState([]);
@@ -36,6 +38,11 @@ export default function EmailCenter() {
       setActiveTab(location.state.tab);
     }
   }, [location.state]);
+
+  // Clear search term when switching tabs
+  useEffect(() => {
+    setSearchTerm('');
+  }, [activeTab]);
 
   const fetchEmails = async () => {
     setIsLoadingLogs(true);
@@ -108,6 +115,25 @@ export default function EmailCenter() {
   const manualLogs = emailLogs.filter(log => log.type === 'Manual');
   const automatedLogs = emailLogs.filter(log => log.type === 'Automated');
 
+  // NEW: Search Filtering Logic
+  const filteredInbox = inboxEmails.filter(e => 
+    e.subject.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.sender_email.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (e.sender_name && e.sender_name.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const filteredManual = manualLogs.filter(e => 
+    e.subject.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.recipient_email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredAutomated = automatedLogs.filter(e => 
+    e.subject.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.recipient_email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const currentFilteredData = activeTab === 'inbox' ? filteredInbox : (activeTab === 'manual' ? filteredManual : filteredAutomated);
+
   const formatExactDateTime = (dateString) => {
     const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
     return new Date(dateString).toLocaleString('en-US', options);
@@ -136,7 +162,6 @@ export default function EmailCenter() {
 
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
-    // FIXED: Changed d=mp to d=404 so it throws an error if no avatar exists, triggering the fallback
     return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=404`;
   };
 
@@ -153,7 +178,7 @@ export default function EmailCenter() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
 
       <style>{`
         @keyframes modalPopIn {
@@ -199,7 +224,7 @@ export default function EmailCenter() {
 
           <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
             
-            {/* Header Area for Content */}
+            {/* Header Area with Search */}
             <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
                 {activeTab === 'inbox' && <><span className="w-4 h-4 rounded-full bg-blue-500 inline-block"></span> Inbox</>}
@@ -207,41 +232,71 @@ export default function EmailCenter() {
                 {activeTab === 'automated' && <><span className="w-4 h-4 rounded-full bg-emerald-500 inline-block"></span> System Logs</>}
               </h2>
 
-              {/* NEW BUTTON FOR AUTOMATED TEMPLATES */}
-              {activeTab === 'automated' && (
-                 <button 
-                   onClick={() => setShowAutoTemplatesModal(true)} 
-                   className="px-5 py-2.5 bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-200 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 shadow-sm"
-                 >
-                   ⚙️ Select Auto Template
-                 </button>
-              )}
+              <div className="flex items-center gap-3 w-full max-w-md ml-auto">
+                <div className="relative flex-1">
+                  <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <input 
+                    type="text" 
+                    placeholder="Search by subject or email..." 
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                  )}
+                </div>
+
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {isLoadingLogs ? (
                 <div className="flex justify-center items-center h-full text-slate-400 font-medium text-xl">Loading emails...</div>
-              ) : activeTab === 'inbox' ? (
-                inboxEmails.length === 0 ? (
-                  <div className="text-center text-slate-400 font-medium py-16 text-xl">No incoming emails yet.</div>
-                ) : (
-                  inboxEmails.map((email) => {
-                    const attachmentsList = parseAttachments(email.attachments);
-                    return (
-                    <div key={email.id} onClick={() => handleEmailClick(email, true)} className="flex items-start gap-6 p-6 border border-slate-100 rounded-3xl hover:bg-slate-50 hover:border-blue-200 transition-all duration-200 cursor-pointer group shadow-sm hover:shadow-md">
-                      <img 
-                        src={getGravatarUrl(email.sender_email)} 
-                        onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(email.sender_email, email.sender_name); }}
-                        alt="Avatar" 
-                        className="h-14 w-14 rounded-full object-cover shadow-sm border border-slate-200 shrink-0 mt-1" 
-                      />
+              ) : currentFilteredData.length === 0 ? (
+                <div className="text-center text-slate-400 font-medium py-16 flex flex-col items-center justify-center">
+                  <svg className="w-16 h-16 text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <p className="text-xl text-slate-500 font-bold mb-1">
+                    {searchTerm ? "No matching emails found." : "No emails found."}
+                  </p>
+                  {searchTerm && <p className="text-sm">Try adjusting your search for "{searchTerm}".</p>}
+                </div>
+              ) : (
+                currentFilteredData.map((email) => {
+                  const isInbox = activeTab === 'inbox';
+                  const attachmentsList = parseAttachments(email.attachments);
+                  return (
+                    <div key={email.id} onClick={() => handleEmailClick(email, isInbox)} className="flex items-start gap-6 p-6 border border-slate-100 rounded-3xl hover:bg-slate-50 hover:border-blue-200 transition-all duration-200 cursor-pointer group shadow-sm hover:shadow-md">
+                      {isInbox ? (
+                        <img 
+                          src={getGravatarUrl(email.sender_email)} 
+                          onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(email.sender_email, email.sender_name); }}
+                          alt="Avatar" 
+                          className="h-14 w-14 rounded-full object-cover shadow-sm border border-slate-200 shrink-0 mt-1" 
+                        />
+                      ) : (
+                        <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white p-1 mt-1">
+                          <img src={getGravatarUrl(systemEmail)} onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(systemEmail, 'Launchpad'); }} alt="System" className="h-full w-full object-contain rounded-full" />
+                        </div>
+                      )}
                       <div className="flex flex-col flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1">
-                          <h4 className="font-black text-slate-900 text-xl">
-                            {email.sender_name && email.sender_name !== email.sender_email ? `${email.sender_name} ` : ''}
-                            <span className="text-base font-semibold text-slate-500">&lt;{email.sender_email}&gt;</span>
+                          <h4 className="font-black text-slate-900 text-xl truncate pr-4">
+                            {isInbox ? (
+                              <>
+                                {email.sender_name && email.sender_name !== email.sender_email ? `${email.sender_name} ` : ''}
+                                <span className="text-base font-semibold text-slate-500">&lt;{email.sender_email}&gt;</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mr-2">Sent To:</span>
+                                {email.recipient_email}
+                              </>
+                            )}
                           </h4>
-                          <span className="text-sm font-bold text-slate-400 whitespace-nowrap">{formatExactDateTime(email.received_at)}</span>
+                          <span className="text-sm font-bold text-slate-400 whitespace-nowrap">{formatExactDateTime(email.received_at || email.sent_at)}</span>
                         </div>
                         <h5 className="font-bold text-slate-800 text-lg mb-2">{email.subject}</h5>
                         <p className="text-slate-600 text-base leading-relaxed line-clamp-2">{getEmailSnippet(email.body)}</p>
@@ -254,51 +309,9 @@ export default function EmailCenter() {
                               </span>
                             )}
                           </div>
-                          <button 
-                            onClick={(e) => triggerDeletePrompt(email.id, 'inbox', e)} 
-                            className="p-2.5 text-slate-400 opacity-0 group-hover:opacity-100 hover:text-white hover:bg-red-500 rounded-xl transition-all shadow-sm"
-                            title="Move to Trash"
-                          >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )})
-                )
-              ) : (
-                (activeTab === 'manual' ? manualLogs : automatedLogs).length === 0 ? (
-                  <div className="text-center text-slate-400 font-medium py-16 text-xl">No emails found.</div>
-                ) : (
-                  (activeTab === 'manual' ? manualLogs : automatedLogs).map((log) => {
-                    const attachmentsList = parseAttachments(log.attachments);
-                    return (
-                    <div key={log.id} onClick={() => handleEmailClick(log, false)} className="flex items-start gap-6 p-6 border border-slate-100 rounded-3xl hover:bg-slate-50 hover:border-indigo-200 transition-all duration-200 cursor-pointer group shadow-sm hover:shadow-md">
-                      <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white p-1 mt-1">
-                        <img src={getGravatarUrl(systemEmail)} onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(systemEmail, 'Launchpad'); }} alt="System" className="h-full w-full object-contain rounded-full" />
-                      </div>
-                      <div className="flex flex-col flex-1 min-w-0">
-                         <div className="flex justify-between items-start mb-1">
-                          <h4 className="font-black text-slate-900 text-xl">
-                            <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mr-2">Sent To:</span>
-                            {log.recipient_email}
-                          </h4>
-                          <span className="text-sm font-bold text-slate-400 whitespace-nowrap">{formatExactDateTime(log.sent_at)}</span>
-                        </div>
-                        <h5 className="font-bold text-slate-800 text-lg mb-2">{log.subject}</h5>
-                        <p className="text-slate-600 text-base leading-relaxed line-clamp-2">{getEmailSnippet(log.body)}</p>
-                        
-                        <div className="mt-4 flex items-center justify-between">
-                          <div className="flex gap-3">
-                             {attachmentsList.length > 0 && (
-                              <span className="inline-flex items-center gap-2 bg-slate-100 text-slate-700 text-sm font-bold px-4 py-1.5 rounded-xl border border-slate-200">
-                                📎 {attachmentsList.length} Attachment{attachmentsList.length > 1 ? 's' : ''}
-                              </span>
-                            )}
-                          </div>
-                          {activeTab === 'manual' && (
+                          {(isInbox || activeTab === 'manual') && (
                             <button 
-                              onClick={(e) => triggerDeletePrompt(log.id, 'logs', e)} 
+                              onClick={(e) => triggerDeletePrompt(email.id, isInbox ? 'inbox' : 'logs', e)} 
                               className="p-2.5 text-slate-400 opacity-0 group-hover:opacity-100 hover:text-white hover:bg-red-500 rounded-xl transition-all shadow-sm"
                               title="Move to Trash"
                             >
@@ -308,8 +321,8 @@ export default function EmailCenter() {
                         </div>
                       </div>
                     </div>
-                  )})
-                )
+                  );
+                })
               )}
             </div>
           </div>
@@ -350,13 +363,6 @@ export default function EmailCenter() {
         </div>
       )}
 
-      {/* RENDER NEW MODAL HERE */}
-      {showAutoTemplatesModal && (
-        <AutomatedTemplatesModal 
-          onClose={() => setShowAutoTemplatesModal(false)}
-          onUpdateSuccess={(msg) => setAlertPrompt({ isOpen: true, message: msg, isError: false })}
-        />
-      )}
 
       <EmailViewModal email={selectedEmail} onClose={() => setSelectedEmail(null)} formatExactDateTime={formatExactDateTime} systemEmail={systemEmail} />
 
