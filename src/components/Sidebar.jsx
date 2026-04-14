@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import myLogo from '../assets/launchpad.png'; // <-- ADD THIS LINE
+import myLogo from '../assets/launchpad.png'; 
 
 export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Desktop expansion state
   const [isExpanded, setIsExpanded] = useState(true); 
-  // Mobile drawer state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   
   const userName = localStorage.getItem('userName') || 'User';
   const userRole = localStorage.getItem('userRole') || 'staff';
-  // Profile Modal State
+  
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileName, setProfileName] = useState(userName);
   const [profilePassword, setProfilePassword] = useState('');
@@ -21,7 +19,6 @@ export default function Sidebar() {
 
   const isActive = (path) => location.pathname === path;
 
-  // Automatically close the mobile sidebar when a user clicks a link and navigates
   useEffect(() => {
     setIsMobileOpen(false);
   }, [location.pathname]);
@@ -44,11 +41,10 @@ export default function Sidebar() {
 
       if (!response.ok) throw new Error('Failed to update profile');
       
-      // Update local storage so the sidebar name changes immediately
       localStorage.setItem('userName', profileName);
       alert('Profile updated successfully!');
       setShowProfileModal(false);
-      setProfilePassword(''); // Clear password field
+      setProfilePassword(''); 
     } catch (error) {
       alert(error.message);
     } finally {
@@ -56,14 +52,11 @@ export default function Sidebar() {
     }
   };
 
-  // On mobile, the sidebar is always fully expanded when visible
   const showText = isMobileOpen || isExpanded;
 
   return (
     <>
-      {/* ========================================== */}
-      {/* MOBILE FLOATING MENU BUTTON                */}
-      {/* ========================================== */}
+      {/* MOBILE FLOATING MENU BUTTON */}
       <button
         onClick={() => setIsMobileOpen(true)}
         className="md:hidden fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-[#d2f34c] shadow-2xl hover:scale-105 transition-transform"
@@ -71,9 +64,7 @@ export default function Sidebar() {
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
       </button>
 
-      {/* ========================================== */}
-      {/* MOBILE BACKDROP OVERLAY                    */}
-      {/* ========================================== */}
+      {/* MOBILE BACKDROP OVERLAY */}
       {isMobileOpen && (
         <div 
           className="md:hidden fixed inset-0 bg-slate-900/60 z-40 backdrop-blur-sm animate-fade-in"
@@ -81,9 +72,7 @@ export default function Sidebar() {
         />
       )}
 
-      {/* ========================================== */}
-      {/* MASTER SIDEBAR CONTAINER                   */}
-      {/* ========================================== */}
+      {/* MASTER SIDEBAR CONTAINER */}
       <div className={`
         fixed md:relative inset-y-0 left-0 z-50 h-screen bg-slate-900 text-white shadow-xl
         flex flex-col transition-all duration-300 ease-in-out
@@ -91,7 +80,7 @@ export default function Sidebar() {
         ${isExpanded ? 'md:w-64' : 'md:w-20'}
       `}>
         
-        {/* DESKTOP TOGGLE BUTTON (Hides on Mobile) */}
+        {/* DESKTOP TOGGLE BUTTON */}
         <button 
           onClick={() => setIsExpanded(!isExpanded)}
           className="hidden md:flex absolute -right-3.5 top-9 h-7 w-7 items-center justify-center rounded-full bg-[#d2f34c] text-slate-900 shadow-md hover:scale-110 transition-transform z-50"
@@ -114,7 +103,6 @@ export default function Sidebar() {
         {/* Logo Section */}
         <div className={`flex items-center mt-8 mb-10 overflow-hidden ${showText ? 'px-6' : 'justify-center'}`}>
           {showText ? (
-            /* Shows the logo AND text when sidebar is OPEN */
             <div className="flex items-center gap-3 animate-fade-in">
               <img src={myLogo} alt="Launchpad Logo" className="h-10 w-auto object-contain shrink-0 filter brightness-0 invert opacity-90" />
               <div className="flex flex-col">
@@ -123,95 +111,95 @@ export default function Sidebar() {
               </div>
             </div>
           ) : (
-            /* Shows ONLY the logo icon when sidebar is CLOSED */
             <img src={myLogo} alt="Launchpad Logo" className="h-8 w-auto object-contain shrink-0 filter brightness-0 invert opacity-90 animate-fade-in" />
           )}
         </div>
 
-        {/* Navigation Links */}
-        <nav className="space-y-2 text-sm font-semibold text-slate-400 flex-1 px-3 overflow-y-auto overflow-x-hidden">
+        {/* NAVIGATION LINKS */}
+        <nav className="space-y-2 text-sm font-semibold text-slate-300 flex-1 px-3 overflow-y-auto overflow-x-hidden">
           
-          {/* DASHBOARD (All Internal Roles) */}
           <Link 
             to="/dashboard" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/dashboard') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/dashboard') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
             title={!showText ? "Dashboard" : ""}
           >
-            <span className="text-lg flex-shrink-0">📊</span>
+            {/* Minimalist Bar Chart Icon */}
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
             {showText && <span className="whitespace-nowrap">Dashboard</span>}
           </Link>
 
-          {/* CLIENT ENCODING */}
           {showText ? (
-            <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">Client Encoding</p>
+            <p className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Client Encoding</p>
           ) : (
             <div className="w-full border-t border-slate-800 my-4"></div>
           )}
 
           <Link 
             to="/lpc-virtual-office" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/lpc-virtual-office') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/lpc-virtual-office') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
             title={!showText ? "LPC Virtual Office" : ""}
           >
-            <span className="text-lg flex-shrink-0">🏢</span>
+            {/* Minimalist Office Building 1 */}
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
             {showText && <span className="whitespace-nowrap">LPC Virtual Office</span>}
           </Link>
 
           <Link 
             to="/lpog-virtual-office" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/lpog-virtual-office') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/lpog-virtual-office') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
             title={!showText ? "LPOG Virtual Office" : ""}
           >
-            <span className="text-lg flex-shrink-0">🏙️</span>
+            {/* Minimalist Skyscraper 2 */}
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 21h18M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16M9 7h6M9 11h6M9 15h6"></path></svg>
             {showText && <span className="whitespace-nowrap">LPOG Virtual Office</span>}
           </Link>
 
-          {/* COMMUNICATIONS */}
           {showText ? (
-            <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">Communications</p>
+            <p className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Communications</p>
           ) : (
             <div className="w-full border-t border-slate-800 my-4"></div>
           )}
 
           <Link 
             to="/email-center" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/email-center') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/email-center') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
             title={!showText ? "Email Center" : ""}
           >
-            <span className="text-lg flex-shrink-0">📧</span>
+            {/* Minimalist Mail Icon */}
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
             {showText && <span className="whitespace-nowrap">Email Center</span>}
           </Link>
 
-          {/* FINANCIALS */}
           {showText ? (
-            <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">Financials</p>
+            <p className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Financials</p>
           ) : (
             <div className="w-full border-t border-slate-800 my-4"></div>
           )}
 
           <Link 
             to="/payments" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/payments') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/payments') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
             title={!showText ? "Payments & Receipts" : ""}
           >
-            <span className="text-lg flex-shrink-0">💳</span>
+            {/* Minimalist Credit Card Icon */}
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
             {showText && <span className="whitespace-nowrap">Payments & Receipts</span>}
           </Link>
 
-          {/* STRICTLY ADMIN ONLY */}
           {userRole === 'admin' && (
             <>
               {showText ? (
-                <p className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-600">System</p>
+                <p className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">System</p>
               ) : (
                 <div className="w-full border-t border-slate-800 my-4"></div>
               )}
               <Link 
                 to="/users" 
-                className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/users') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'hover:bg-slate-800 hover:text-white'}`}
+                className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive('/users') ? 'bg-[#d2f34c]/10 text-[#d2f34c]' : 'text-slate-200 hover:bg-slate-700 hover:text-white'}`}
                 title={!showText ? "User Management" : ""}
               >
-                <span className="text-lg flex-shrink-0">⚙️</span>
+                {/* Minimalist Settings/Cog Icon */}
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                 {showText && <span className="whitespace-nowrap">User Management</span>}
               </Link>
             </>
@@ -228,8 +216,7 @@ export default function Sidebar() {
                   <p className="text-sm font-bold text-white truncate">{userName}</p>
                   <p className="text-xs text-[#d2f34c] capitalize font-medium">{userRole}</p>
                 </div>
-                {/* NEW PROFILE SETTINGS BUTTON */}
-                <button onClick={() => setShowProfileModal(true)} className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-800" title="My Profile">
+                <button onClick={() => setShowProfileModal(true)} className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700" title="My Profile">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </button>
               </div>
@@ -242,9 +229,8 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-      {/* ========================================== */}
-      {/* MY PROFILE MODAL                           */}
-      {/* ========================================== */}
+
+      {/* MY PROFILE MODAL */}
       {showProfileModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in text-left">
           <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-2xl">

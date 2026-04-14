@@ -188,21 +188,30 @@ export default function LPCVirtualOffice() {
       if (startDay !== 1 || endDay !== daysInEndMonth) {
         isProrated = true;
         
-        const activeDaysFirstMonth = daysInStartMonth - startDay + 1;
-        firstMonthAmount = (rate / daysInStartMonth) * activeDaysFirstMonth;
-
-        finalMonthAmount = (rate / daysInEndMonth) * endDay;
+        // STEP 1: Calculate the exact daily rate and force it to 2 decimal places (e.g., 3500 / 30 = 116.67)
+        const dailyRateFirstMonth = Number((rate / daysInStartMonth).toFixed(2));
+        const dailyRateFinalMonth = Number((rate / daysInEndMonth).toFixed(2));
         
+        // STEP 2: Multiply the rounded daily rate by the active days
+        const activeDaysFirstMonth = daysInStartMonth - startDay + 1;
+        firstMonthAmount = dailyRateFirstMonth * activeDaysFirstMonth;
+
+        finalMonthAmount = dailyRateFinalMonth * endDay;
+        
+        // Edge Case: If the contract starts and ends within the exact same month
         if (startYear === endYear && startMonth === endMonth) {
             const activeDays = endDay - startDay + 1;
-            firstMonthAmount = (rate / daysInStartMonth) * activeDays;
+            firstMonthAmount = dailyRateFirstMonth * activeDays;
             finalMonthAmount = 0;
             fullMonthsBetween = 0;
         }
       }
 
-      const totalValue = firstMonthAmount + finalMonthAmount + (fullMonthsBetween * rate);
-
+      // STEP 3: Prevent JavaScript floating-point glitches (e.g., stopping 1983.39 turning into 1983.3900000000001)
+      firstMonthAmount = Number(firstMonthAmount.toFixed(2));
+      finalMonthAmount = Number(finalMonthAmount.toFixed(2));
+      
+      const totalValue = Number((firstMonthAmount + finalMonthAmount + (fullMonthsBetween * rate)).toFixed(2));
       // NEW: Calculate the recurring installment amount based on terms
       let installmentAmount = rate;
       let installmentLabel = "Monthly";
@@ -1168,23 +1177,6 @@ export default function LPCVirtualOffice() {
                         <span className="font-bold text-slate-800">Total Contract Value:</span>
                         <span className="text-xl font-black text-blue-700">{formatCurrency(paymentSchedule.totalContractValue)}</span>
                       </div>
-
-                      {/* NEW: Dynamic Billing Schedule Indicator */}
-                      {paymentSchedule.terms && (
-                        <div className="mt-auto bg-slate-800 text-white p-3 rounded-lg border border-slate-700 shadow-inner">
-                           <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Billing Schedule</p>
-                           {paymentSchedule.terms === 'Full Payment' ? (
-                             <p className="text-sm font-medium">
-                               <span className="font-bold text-[#d2f34c]">100% Upfront</span>. No recurring invoices.
-                             </p>
-                           ) : (
-                             <div className="flex justify-between items-center">
-                               <span className="text-sm font-medium">{paymentSchedule.installmentLabel} Installments:</span>
-                               <span className="text-lg font-bold text-[#d2f34c]">{formatCurrency(paymentSchedule.installmentAmount)}</span>
-                             </div>
-                           )}
-                        </div>
-                      )}
                     </div>
                   </div>
                 ) : (
