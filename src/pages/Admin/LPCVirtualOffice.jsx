@@ -7,12 +7,19 @@ export default function LPCVirtualOffice() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   
+// --- TIER 1: ORIGINAL FILTERS ---
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterDuration, setFilterDuration] = useState('All');
   const [filterRate, setFilterRate] = useState('All');
   const [filterTerms, setFilterTerms] = useState('All');
   const [filterPackage, setFilterPackage] = useState('All');
+
+  // --- TIER 2: ADVANCED OPERATIONAL FILTERS ---
+  const [filterExpiration, setFilterExpiration] = useState('All');
+  const [filterTenure, setFilterTenure] = useState('All'); 
+  const [filterAutoEmail, setFilterAutoEmail] = useState('All'); 
+  // NOTE: filterKYC has been completely removed
 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10); 
@@ -67,17 +74,56 @@ export default function LPCVirtualOffice() {
   const uniqueTerms = [...new Set(clients.map(c => c.payment_terms))].filter(Boolean).sort();
   const uniquePackages = [...new Set(clients.map(c => c.package_tier))].filter(Boolean).sort();
 
+  // --- COMBINED FILTER LOGIC ---
   const filteredClients = clients.filter(client => {
-    const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (client.contact_person_1 && client.contact_person_1.toLowerCase().includes(searchTerm.toLowerCase()));
     
+    // 1. Original Matches
+    const matchesSearch = 
+      (client.company_name && client.company_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (client.email_1 && client.email_1.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesStatus = filterStatus === 'All' || client.contract_status === filterStatus;
     const matchesDuration = filterDuration === 'All' || client.duration === filterDuration;
-    const matchesRate = filterRate === 'All' || Number(client.rate_per_month) === Number(filterRate);
+    const matchesRate = filterRate === 'All' || String(client.rate_per_month) === String(filterRate);
     const matchesTerms = filterTerms === 'All' || client.payment_terms === filterTerms;
-    const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage; 
+    const matchesPackage = filterPackage === 'All' || client.package_tier === filterPackage;
 
-    return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage;
+    // 2. Expiration Match (Time Left)
+    let matchesExpiration = true;
+    if (filterExpiration !== 'All' && client.end_date) {
+      const today = new Date();
+      const expiryDate = new Date(client.end_date);
+      today.setHours(0,0,0,0);
+      expiryDate.setHours(0,0,0,0);
+      const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+
+      // Note: The logic matches the values, but the display text in the dropdown will be longer
+      if (filterExpiration === 'Expiring Soon') matchesExpiration = daysUntilExpiry >= 0 && daysUntilExpiry <= 60;
+      if (filterExpiration === 'Expired') matchesExpiration = daysUntilExpiry < 0;
+    } else if (filterExpiration !== 'All' && !client.end_date) {
+      matchesExpiration = false; 
+    }
+
+    // 3. Tenure Match (Client Age)
+    let matchesTenure = true;
+    if (filterTenure !== 'All' && client.date_started) {
+      const start = new Date(client.date_started);
+      const now = new Date();
+      const monthsDiff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+      
+      if (filterTenure === 'New') matchesTenure = monthsDiff <= 3;
+      if (filterTenure === 'Established') matchesTenure = monthsDiff > 3 && monthsDiff <= 12;
+      if (filterTenure === 'Long-Term') matchesTenure = monthsDiff > 12;
+    } else if (filterTenure !== 'All' && !client.date_started) {
+      matchesTenure = false;
+    }
+
+    // 4. Auto-Email Match
+    let matchesAutoEmail = true;
+    if (filterAutoEmail === 'Enabled') matchesAutoEmail = client.auto_email_enabled === 1 || client.auto_email_enabled === true;
+    if (filterAutoEmail === 'Disabled') matchesAutoEmail = !client.auto_email_enabled;
+
+    // NOTE: matchesKYC removed from the return statement
+    return matchesSearch && matchesStatus && matchesDuration && matchesRate && matchesTerms && matchesPackage && matchesExpiration && matchesTenure && matchesAutoEmail;
   });
 
   useEffect(() => {
@@ -197,10 +243,14 @@ export default function LPCVirtualOffice() {
   
 
   const actualItemsPerPage = itemsPerPage === 'All' ? filteredClients.length : Number(itemsPerPage);
-  const totalPages = Math.ceil(filteredClients.length / (actualItemsPerPage || 1));
-  const indexOfLastItem = currentPage * actualItemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - actualItemsPerPage;
+  // --- PAGINATION MATH FIX ---
+  // Safely convert "All" into the actual total number of clients before doing math
+  const safeItemsPerPage = itemsPerPage === 'All' ? (filteredClients.length || 1) : Number(itemsPerPage);
+  
+  const indexOfLastItem = currentPage * safeItemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - safeItemsPerPage;
   const currentItems = filteredClients.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredClients.length / safeItemsPerPage);
 
   // ==========================================
   // PHASE 1: EXPORT & TEMPLATE ENGINE
@@ -261,12 +311,25 @@ export default function LPCVirtualOffice() {
     return result;
   };
 
-  // 2. The Smart Sanitization Engine
+// 2. The Smart Sanitization Engine
   const processImportData = (rows) => {
     if (!rows || rows.length < 2) return [];
     
-    // Normalize headers for fuzzy matching (lowercase, no spaces)
-    const headers = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    // --- FIX 1: DYNAMIC HEADER DETECTION ---
+    // Excel files often have title rows at the top. We scan the first 5 rows 
+    // to automatically find the actual row containing the headers.
+    let headerIndex = 0;
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+        const rowString = rows[i].join('').toLowerCase();
+        if (rowString.includes('company') || rowString.includes('business') || rowString.includes('package')) {
+            headerIndex = i;
+            break;
+        }
+    }
+
+    // --- FIX 2: SAFE STRING CONVERSION ---
+    // String(h || '') prevents the "Cannot read properties of undefined" crash
+    const headers = rows[headerIndex].map(h => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
     
     const findCol = (keywords) => {
         for (let i = 0; i < headers.length; i++) {
@@ -282,36 +345,48 @@ export default function LPCVirtualOffice() {
         contact2: findCol(['contact2', 'person2']),
         email1: findCol(['email1', 'emailaddress', 'email']),
         email2: findCol(['email2']),
-        start: findCol(['start', 'date']),
+        start: findCol(['start', 'date started']),
         end: findCol(['end', 'expiry']),
         pkg: findCol(['package', 'tier', 'service']),
-        rate: findCol(['rate', 'price', 'fee', 'amount', 'payment']),
-        terms: findCol(['term', 'schedule', 'billing']),
-        status: findCol(['status', 'state']),
-        remarks: findCol(['remark', 'note'])
+        rate: findCol(['rate', 'price', 'fee', 'amount']),
+        terms: findCol(['payment', 'term', 'schedule', 'billing']), 
+        status: findCol(['status', 'state']), 
+        remarks: findCol(['remark', 'note', 'drive'])
     };
 
     const sanitizedData = [];
     
-    for (let i = 1; i < rows.length; i++) {
+    // --- FIX 3: Start looping AFTER the dynamic header row ---
+    for (let i = headerIndex + 1; i < rows.length; i++) {
         const r = rows[i];
-        if (r.length < 2 || !r[colMap.company]) continue; // Skip empty rows
-
-        const safeGet = (idx) => idx !== -1 && r[idx] ? r[idx] : '';
+        
+        // Safely extract the data, defaulting to an empty string if undefined
+        const safeGet = (idx) => idx !== -1 && r[idx] ? String(r[idx]).trim() : '';
+        
+        if (r.length < 2 || !safeGet(colMap.company)) continue; // Skip empty rows
 
         // A. Package Smart-Router
         let rawPkg = safeGet(colMap.pkg);
         let finalPkg = '';
         let customName = '';
-        if (rawPkg.toLowerCase().includes('virtual office')) finalPkg = 'Virtual Office Package';
+        if (rawPkg.toLowerCase().includes('virtual office') || rawPkg.includes('V.O')) finalPkg = 'Virtual Office Package';
         else if (rawPkg.toLowerCase().includes('use of address')) finalPkg = 'Use of Address';
         else if (rawPkg !== '') { finalPkg = 'Custom'; customName = rawPkg; }
 
-        // B. Financial Sanitizer (Strips ₱, commas, spaces)
+        // B. Financial Sanitizer
         let rawRate = safeGet(colMap.rate);
         let cleanRate = rawRate.replace(/[^0-9.]/g, ''); 
 
-        // C. Date Parser
+        // C. Payment Terms Smart-Extractor
+        let rawTerms = safeGet(colMap.terms).toLowerCase();
+        let finalTerms = 'Monthly'; 
+        
+        if (rawTerms.includes('semi')) finalTerms = 'Semi-Annual';
+        else if (rawTerms.includes('quarter')) finalTerms = 'Quarterly';
+        else if (rawTerms.includes('annual') || rawTerms.includes('full')) finalTerms = 'Annually';
+        else if (rawTerms.includes('month')) finalTerms = 'Monthly';
+
+        // D. Date Parser
         let formattedStart = '';
         let formattedEnd = '';
         try {
@@ -321,7 +396,7 @@ export default function LPCVirtualOffice() {
             if (e) formattedEnd = new Date(e).toISOString().split('T')[0];
         } catch (e) { console.warn("Invalid date format in row", i); }
 
-        // D. Duration Auto-Calculator
+        // E. Duration Auto-Calculator
         let calcDuration = '';
         if (formattedStart && formattedEnd) {
             const sObj = new Date(formattedStart);
@@ -332,8 +407,24 @@ export default function LPCVirtualOffice() {
             }
         }
 
+        // F. Contract Status Auto-Calculator
+        let finalStatus = 'Active';
+        if (formattedEnd) {
+            const today = new Date();
+            const expiryDate = new Date(formattedEnd);
+            
+            // Normalize dates to midnight for accurate day comparison
+            today.setHours(0,0,0,0);
+            expiryDate.setHours(0,0,0,0);
+            
+            const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+            
+            if (daysUntilExpiry < 0) finalStatus = 'Expired';
+            else if (daysUntilExpiry <= 30) finalStatus = 'Pending Renewal';
+        }
+
         sanitizedData.push({
-            id: `import_${Date.now()}_${i}`, // Temporary Staging ID
+            id: `import_${Date.now()}_${i}`, 
             company_name: safeGet(colMap.company),
             contact_person_1: safeGet(colMap.contact1),
             contact_person_2: safeGet(colMap.contact2),
@@ -345,13 +436,12 @@ export default function LPCVirtualOffice() {
             package_tier: finalPkg,
             custom_package_name: customName,
             rate_per_month: cleanRate,
-            payment_terms: safeGet(colMap.terms) || 'Monthly',
-            contract_status: safeGet(colMap.status) || 'Active',
+            payment_terms: finalTerms, 
+            contract_status: finalStatus, 
             remarks: safeGet(colMap.remarks),
             auto_email_enabled: true,
             documents_submitted: false,
-            // Track missing required fields for the Phase 3 Staging Modal
-            hasErrors: !safeGet(colMap.company) || !formattedStart || !cleanRate
+            hasErrors: !safeGet(colMap.company) || !formattedStart || !cleanRate || !formattedEnd
         });
     }
     
@@ -373,6 +463,21 @@ export default function LPCVirtualOffice() {
         e.target.value = null; // Reset input 
     };
     reader.readAsText(file);
+  };
+
+  // --- NEW: INLINE STAGING EDITOR ---
+  const handleStagingEdit = (rowId, field, newValue) => {
+    setImportStaging(prevStaging => 
+      prevStaging.map(row => {
+        if (row.id === rowId) {
+          const updatedRow = { ...row, [field]: newValue };
+          // Re-calculate errors instantly so rows can turn from red to green!
+          updatedRow.hasErrors = !updatedRow.company_name || !updatedRow.date_started || !updatedRow.end_date || !updatedRow.rate_per_month;
+          return updatedRow;
+        }
+        return row;
+      })
+    );
   };
 
   // 3. Execution Function (Sends valid rows to backend)
@@ -565,7 +670,7 @@ export default function LPCVirtualOffice() {
       });
       
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to send email.');
+      if (!response.ok) throw new Error(data.message || 'Failed tfo send email.');
       
       // THE NEW SUCCESS MESSAGE PROMPT
       setActionAlert({ 
@@ -591,10 +696,10 @@ export default function LPCVirtualOffice() {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50 font-sans">
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       <Sidebar />
 
-      <div className="flex-1 p-8 overflow-hidden">
+      <div className="flex-1 p-8 overflow-hidden flex flex-col h-screen">
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">LPC Virtual Office</h2>
@@ -647,91 +752,94 @@ export default function LPCVirtualOffice() {
           </div>
         </header>
 
-        <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          <div className="w-full">
-            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
-            <input 
-              type="text" 
-              placeholder="🔍 Search by Company Name or Contact Person..." 
-              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-[#b8d839] focus:ring-1 focus:ring-[#b8d839]"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        {/* --- UNIFIED ORGANIZED FILTER SYSTEM --- */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-col gap-5">
+          
+          {/* Top Row: Search & Reset */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-96 shrink-0">
+              <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              <input 
+                type="text" placeholder="Search companies or emails..." 
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#d2f34c] transition-all"
+                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            
+            {(searchTerm || filterStatus !== 'All' || filterDuration !== 'All' || filterRate !== 'All' || filterTerms !== 'All' || filterPackage !== 'All' || filterExpiration !== 'All' || filterTenure !== 'All' || filterAutoEmail !== 'All') && (
+              <button 
+                onClick={() => { setSearchTerm(''); setFilterStatus('All'); setFilterDuration('All'); setFilterRate('All'); setFilterTerms('All'); setFilterPackage('All'); setFilterExpiration('All'); setFilterTenure('All'); setFilterAutoEmail('All'); }}
+                className="text-xs font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-4 py-2.5 rounded-lg transition-colors border border-rose-100 w-full sm:w-auto text-center"
+              >
+                Clear All Filters
+              </button>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                <option value="All">All Statuses</option>
+          {/* Bottom Area: Filter Dropdowns */}
+          <div className="flex flex-col gap-3 text-xs">
+            
+            {/* Group 1: Contract Details */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-slate-400 uppercase tracking-widest w-full md:w-24 mb-1 md:mb-0">Contract:</span>
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option value="All">Status: All</option>
                 <option value="Active">Active</option>
                 <option value="Pending Renewal">Pending Renewal</option>
                 <option value="Expired">Expired</option>
-                <option value="Terminated">Terminated</option>
+              </select>
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)}>
+                <option value="All">Duration: All</option>
+                {[...new Set(clients.map(c => c.duration))].filter(Boolean).map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterRate} onChange={(e) => setFilterRate(e.target.value)}>
+                <option value="All">Rate: All</option>
+                {[...new Set(clients.map(c => c.rate_per_month))].filter(Boolean).map(r => <option key={r} value={r}>₱{r}</option>)}
+              </select>
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterTerms} onChange={(e) => setFilterTerms(e.target.value)}>
+                <option value="All">Terms: All</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+                <option value="Semi-Annual">Semi-Annual</option>
+                <option value="Annually">Annually</option>
+              </select>
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer max-w-[150px] truncate" value={filterPackage} onChange={(e) => setFilterPackage(e.target.value)}>
+                <option value="All">Package: All</option>
+                {[...new Set(clients.map(c => c.package_tier))].filter(Boolean).map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Package Tier</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterPackage} onChange={(e) => setFilterPackage(e.target.value)}
-              >
-                <option value="All">All Packages</option>
-                {uniquePackages.map(pkg => (
-                  <option key={pkg} value={pkg}>{pkg}</option>
-                ))}
+            {/* Group 2: Operations */}
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+              <span className="font-bold text-slate-400 uppercase tracking-widest w-full md:w-24 mb-1 md:mb-0">Operations:</span>
+              
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterExpiration} onChange={(e) => setFilterExpiration(e.target.value)}>
+                 <option value="All">Time Left: All</option>
+                 <option value="Expiring Soon">Expiring Soon (Under 60 Days)</option>
+                 <option value="Expired">Expired (Action Required)</option>
+              </select>
+              
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterTenure} onChange={(e) => setFilterTenure(e.target.value)}>
+                 <option value="All">Client Age: All</option>
+                 <option value="New">New (Under 3 Months)</option>
+                 <option value="Established">Established (3 to 12 Months)</option>
+                 <option value="Long-Term">Long-Term (Over 1 Year)</option>
+              </select>
+              
+              <select className="border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 outline-none cursor-pointer" value={filterAutoEmail} onChange={(e) => setFilterAutoEmail(e.target.value)}>
+                 <option value="All">Auto-Email: All</option>
+                 <option value="Enabled">System Enabled</option>
+                 <option value="Disabled">Manually Paused</option>
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Duration</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)}
-              >
-                <option value="All">All Durations</option>
-                {uniqueDurations.map(dur => (
-                  <option key={dur} value={dur}>{dur}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Agreed Rate</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterRate} onChange={(e) => setFilterRate(e.target.value)}
-              >
-                <option value="All">All Rates</option>
-                {uniqueRates.map(rate => (
-                  <option key={rate} value={rate}>{formatCurrency(rate)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Terms</label>
-              <select 
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white"
-                value={filterTerms} onChange={(e) => setFilterTerms(e.target.value)}
-              >
-                <option value="All">All Terms</option>
-                {uniqueTerms.map(term => (
-                  <option key={term} value={term}>{term}</option>
-                ))}
-              </select>
-            </div>
           </div>
         </div>
 
-        <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="rounded-xl bg-white shadow-sm border border-slate-100 flex flex-col flex-1 overflow-hidden">
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
             <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Company & Contacts</th>
                   <th className="px-6 py-4 font-semibold">Emails</th>
@@ -859,7 +967,7 @@ export default function LPCVirtualOffice() {
               </div>
             )}
 
-<form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-8">
+              <form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-8">
                
                {/* COLUMN 1: Client Details */}
                <div className="space-y-4">
@@ -1011,10 +1119,12 @@ export default function LPCVirtualOffice() {
                          <svg className={`w-3 h-3 text-white ${formData.documents_submitted ? 'opacity-100' : 'opacity-0'} transition-opacity`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                        </div>
                      </div>
-                     <div>
-                       <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Company Documents Submitted</p>
-                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Check this once documents are surrendered. Disables the manual document request button.</p>
-                     </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Company Documents Submitted</p>
+                      <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                        <strong className="text-emerald-600">Anti-Spam Lock:</strong> Check this once documents are surrendered. This instantly stops all automated document requests and disables the manual email button.
+                      </p>
+                    </div>
                    </label>
                 </div>
 
@@ -1188,47 +1298,125 @@ export default function LPCVirtualOffice() {
               <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-3xl">&times;</button>
             </div>
 
-            {/* The Review Grid */}
-            <div className="flex-1 overflow-auto p-6 bg-slate-50/50">
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap">
-                  <thead className="bg-slate-100 text-slate-500 border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3 font-bold">Status</th>
-                      <th className="px-4 py-3 font-bold">Company Name</th>
-                      <th className="px-4 py-3 font-bold">Email</th>
-                      <th className="px-4 py-3 font-bold">Package</th>
-                      <th className="px-4 py-3 font-bold">Dates</th>
-                      <th className="px-4 py-3 font-bold">Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {importStaging.map((row, idx) => (
-                      <tr key={idx} className={row.hasErrors ? 'bg-rose-50/50' : 'hover:bg-slate-50 transition-colors'}>
-                        <td className="px-4 py-3">
-                          {row.hasErrors ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-100 px-2 py-1 rounded-md"><span className="text-sm">⚠️</span> Missing Data</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md"><span className="text-sm">✅</span> Ready</span>
-                          )}
-                        </td>
-                        <td className={`px-4 py-3 font-bold ${row.hasErrors && !row.company_name ? 'text-rose-500' : 'text-slate-800'}`}>
-                          {row.company_name || 'Missing Name'}
-                        </td>
-                        <td className="px-4 py-3 text-blue-600">{row.email_1 || '-'}</td>
-                        <td className="px-4 py-3 font-medium text-slate-700">
-                          {row.package_tier === 'Custom' ? <span className="text-blue-600 font-bold">Custom: {row.custom_package_name}</span> : row.package_tier}
-                        </td>
-                        <td className={`px-4 py-3 text-xs ${row.hasErrors && (!row.date_started || !row.end_date) ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
-                          {row.date_started || '?'} to {row.end_date || '?'}
-                        </td>
-                        <td className={`px-4 py-3 font-bold ${row.hasErrors && !row.rate_per_month ? 'text-rose-500' : 'text-slate-800'}`}>
-                          ₱{row.rate_per_month || '0'}
-                        </td>
+{/* The Editable Review Grid */}
+            <div className="flex-1 p-6 bg-slate-50/50 overflow-hidden flex flex-col">
+              <div className="border border-slate-200 rounded-xl shadow-sm bg-white flex flex-col flex-1 overflow-hidden">
+                
+                {/* NEW: Scrollable Wrapper for Horizontal & Vertical Scrolling */}
+                <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
+                  <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[1200px]">
+                    <thead className="bg-slate-100 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                      <tr>
+                        <th className="px-4 py-3 font-bold w-28">Status</th>
+                        <th className="px-4 py-3 font-bold">Company Name</th>
+                        <th className="px-4 py-3 font-bold">Email</th>
+                        <th className="px-4 py-3 font-bold">Package</th>
+                        <th className="px-4 py-3 font-bold w-36">Start Date</th>
+                        <th className="px-4 py-3 font-bold w-36">End Date</th>
+                        <th className="px-4 py-3 font-bold w-32">Rate (₱)</th>
+                        <th className="px-4 py-3 font-bold">Terms</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {importStaging.map((row) => (
+                        <tr key={row.id} className={`${row.hasErrors ? 'bg-rose-50/50' : 'hover:bg-slate-50'} transition-colors group`}>
+                          
+                          {/* Status */}
+                          <td className="px-4 py-2">
+                            {row.hasErrors ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-100 px-2 py-1 rounded-md"><span className="text-sm">⚠️</span> Fix Errors</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md"><span className="text-sm">✅</span> Ready</span>
+                            )}
+                          </td>
+
+                          {/* Editable Company Name */}
+                          <td className="px-4 py-2">
+                            <input 
+                              type="text" 
+                              value={row.company_name} 
+                              onChange={(e) => handleStagingEdit(row.id, 'company_name', e.target.value)}
+                              className={`w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-bold transition-all ${row.hasErrors && !row.company_name ? 'placeholder:text-rose-400 bg-rose-100/50 border-rose-200' : 'text-slate-800'}`}
+                              placeholder="Required..."
+                            />
+                          </td>
+
+                          {/* Editable Email */}
+                          <td className="px-4 py-2">
+                            <input 
+                              type="email" 
+                              value={row.email_1} 
+                              onChange={(e) => handleStagingEdit(row.id, 'email_1', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 text-blue-600 transition-all"
+                            />
+                          </td>
+
+                          {/* Editable Package */}
+                          <td className="px-4 py-2">
+                            <select 
+                              value={row.package_tier} 
+                              onChange={(e) => handleStagingEdit(row.id, 'package_tier', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all cursor-pointer"
+                            >
+                              <option value="Virtual Office Package">Virtual Office Package</option>
+                              <option value="Use of Address">Use of Address</option>
+                              <option value="Custom">Custom</option>
+                            </select>
+                          </td>
+
+                          {/* Editable Start Date */}
+                          <td className="px-4 py-2">
+                            <input 
+                              type="date" 
+                              value={row.date_started} 
+                              onChange={(e) => handleStagingEdit(row.id, 'date_started', e.target.value)}
+                              className={`w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 text-xs transition-all ${row.hasErrors && !row.date_started ? 'bg-rose-100/50 border-rose-200 text-rose-600' : 'text-slate-600'}`}
+                            />
+                          </td>
+
+                          {/* Editable End Date */}
+                          <td className="px-4 py-2">
+                            <input 
+                              type="date" 
+                              value={row.end_date} 
+                              onChange={(e) => handleStagingEdit(row.id, 'end_date', e.target.value)}
+                              className={`w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 text-xs transition-all ${row.hasErrors && !row.end_date ? 'bg-rose-100/50 border-rose-200 text-rose-600' : 'text-slate-600'}`}
+                            />
+                          </td>
+
+                          {/* Editable Rate */}
+                          <td className="px-4 py-2">
+                            <div className="relative flex items-center">
+                              <span className="absolute left-2 text-slate-400 font-bold">₱</span>
+                              <input 
+                                type="number" 
+                                value={row.rate_per_month} 
+                                onChange={(e) => handleStagingEdit(row.id, 'rate_per_month', e.target.value)}
+                                className={`w-full bg-transparent pl-6 pr-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-bold transition-all ${row.hasErrors && !row.rate_per_month ? 'placeholder:text-rose-400 bg-rose-100/50 border-rose-200' : 'text-slate-800'}`}
+                                placeholder="0"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Editable Terms */}
+                          <td className="px-4 py-2">
+                            <select 
+                              value={row.payment_terms} 
+                              onChange={(e) => handleStagingEdit(row.id, 'payment_terms', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all cursor-pointer"
+                            >
+                              <option value="Monthly">Monthly</option>
+                              <option value="Quarterly">Quarterly</option>
+                              <option value="Semi-Annual">Semi-Annual</option>
+                              <option value="Annually">Annually</option>
+                            </select>
+                          </td>
+
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
