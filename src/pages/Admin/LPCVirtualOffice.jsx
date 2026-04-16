@@ -2,10 +2,52 @@ import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../../components/Sidebar';
 import NotificationBell from '../../components/NotificationBell'; 
 
+// --- NEW: EXCEL-LIKE DRAGGABLE COLUMN HEADER ---
+const ResizableHeader = ({ title, defaultWidth }) => {
+  const [width, setWidth] = useState(defaultWidth);
+
+  const startResize = (e) => {
+    const startX = e.clientX;
+    const startWidth = width;
+
+    const onMouseMove = (moveEvent) => {
+      // Apply a minimum width of 80px so columns don't disappear
+      const newWidth = Math.max(80, startWidth + (moveEvent.clientX - startX));
+      setWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  return (
+    <th 
+      style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }} 
+      className="px-4 py-3 font-bold relative group bg-slate-100 overflow-hidden border-r border-slate-200 last:border-r-0"
+    >
+      <span className="truncate block select-none pr-2">{title}</span>
+      {/* The invisible drag handle on the right edge */}
+      <div
+        onMouseDown={startResize}
+        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 z-20 transition-colors"
+        title="Drag to resize"
+      />
+    </th>
+  );
+};
+
+
 export default function LPCVirtualOffice() {
   const [clients, setClients] = useState([]);
   const [showFormModal, setShowFormModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  
+  const [customAttachment, setCustomAttachment] = useState(null);
   
 // --- TIER 1: ORIGINAL FILTERS ---
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,6 +77,10 @@ export default function LPCVirtualOffice() {
   const [isSendingDoc, setIsSendingDoc] = useState(false);
 
   const [isImporting, setIsImporting] = useState(false);
+  
+  // FIXED: Added missing import states to prevent ReferenceErrors!
+  const [importSummary, setImportSummary] = useState({ total: 0, valid: 0, invalid: 0 });
+  const [importStep, setImportStep] = useState(1);
 
   const initialFormState = {
     company_name: '', contact_person_1: '', contact_person_2: '', email_1: '', email_2: '',
@@ -212,23 +258,47 @@ export default function LPCVirtualOffice() {
       finalMonthAmount = Number(finalMonthAmount.toFixed(2));
       
       const totalValue = Number((firstMonthAmount + finalMonthAmount + (fullMonthsBetween * rate)).toFixed(2));
-      // NEW: Calculate the recurring installment amount based on terms
+
+// NEW: Calculate the recurring installment amount and exact invoice breakdowns
+      
+      // Calculate total months for invoice division
+      const msPerDay = 1000 * 60 * 60 * 24;
+      const totalDays = Math.round((endObj - startObj) / msPerDay) + 1;
+      const calculatedMonths = Math.max(1, Math.round(totalDays / 30.44));
+
       let installmentAmount = rate;
       let installmentLabel = "Monthly";
+      let termMultiplier = 1; 
 
       if (terms === 'Quarterly') {
-          installmentAmount = rate * 3;
+          termMultiplier = 3;
+          installmentAmount = rate * termMultiplier;
           installmentLabel = "Quarterly";
       } else if (terms === 'Semi-Annual') {
-          installmentAmount = rate * 6;
+          termMultiplier = 6;
+          installmentAmount = rate * termMultiplier;
           installmentLabel = "Semi-Annual";
-      } else if (terms === 'Annual') {
-          installmentAmount = rate * 12;
-          installmentLabel = "Annual";
-      } else if (terms === 'Full Payment') {
+      } else if (terms === 'Annually') {
+          termMultiplier = fullMonthsBetween; 
           installmentAmount = totalValue; 
-          installmentLabel = "Upfront";
+          installmentLabel = "Total Upfront Payment";
       }
+
+      // --- SMART INVOICE COUNTER ---
+      let totalInvoices = 1;
+      if (terms === 'Monthly') totalInvoices = calculatedMonths;
+      else if (terms === 'Quarterly') totalInvoices = Math.max(1, Math.round(calculatedMonths / 3));
+      else if (terms === 'Semi-Annual') totalInvoices = Math.max(1, Math.round(calculatedMonths / 6));
+
+      // If prorated, the First and Final invoices take up 2 slots. The remainder are Standard.
+      let standardInvoiceCount = isProrated ? Math.max(0, totalInvoices - 2) : totalInvoices;
+
+      // Calculate exact invoices by adding the standard months to the prorated fraction
+      let firstInvoiceAmount = firstMonthAmount + (rate * (termMultiplier - 1));
+      let finalInvoiceAmount = finalMonthAmount + (rate * (termMultiplier - 1));
+      
+      if (firstInvoiceAmount > totalValue) firstInvoiceAmount = totalValue;
+      if (finalInvoiceAmount > totalValue) finalInvoiceAmount = totalValue;
 
       setPaymentSchedule({
         isProrated,
@@ -237,16 +307,19 @@ export default function LPCVirtualOffice() {
         finalMonthAmount,
         totalContractValue: totalValue,
         monthsCount: fullMonthsBetween,
-        // Add the new data to the state
         installmentAmount,
         installmentLabel,
+        termMultiplier,
+        firstInvoiceAmount,
+        finalInvoiceAmount,
+        totalInvoices,
+        standardInvoiceCount,
         terms 
       });
 
     } else {
       setPaymentSchedule(null);
     }
-  // IMPORTANT: Add formData.payment_terms to this array so it recalculates when changed!
   }, [formData.date_started, formData.end_date, formData.rate_per_month, formData.payment_terms]);
 
   
@@ -320,144 +393,114 @@ export default function LPCVirtualOffice() {
     return result;
   };
 
-// 2. The Smart Sanitization Engine
-  const processImportData = (rows) => {
-    if (!rows || rows.length < 2) return [];
-    
-    // --- FIX 1: DYNAMIC HEADER DETECTION ---
-    // Excel files often have title rows at the top. We scan the first 5 rows 
-    // to automatically find the actual row containing the headers.
-    let headerIndex = 0;
-    for (let i = 0; i < Math.min(5, rows.length); i++) {
-        const rowString = rows[i].join('').toLowerCase();
-        if (rowString.includes('company') || rowString.includes('business') || rowString.includes('package')) {
-            headerIndex = i;
-            break;
-        }
-    }
+// --- PHASE 1: Process CSV and Staging Data ---
+  const processImportData = (rawRows) => {
+    setImportStep(3); // Go to staging/review
 
-    // --- FIX 2: SAFE STRING CONVERSION ---
-    // String(h || '') prevents the "Cannot read properties of undefined" crash
-    const headers = rows[headerIndex].map(h => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
-    
-    const findCol = (keywords) => {
-        for (let i = 0; i < headers.length; i++) {
-            if (keywords.some(kw => headers[i].includes(kw))) return i;
-        }
-        return -1;
+    if (!rawRows || rawRows.length < 2) return; // Ensure there's data to process
+
+    // 1. Helper to find column index from keywords
+    const headers = rawRows[0].map(h => h ? String(h).toLowerCase().replace(/[^a-z0-9]/g, '') : '');
+    const findCol = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+
+    // 2. Helper to safely parse dates from CSV
+    const parseCsvDate = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+    };
+
+    // --- NEW: 3. Smart Payment Terms Parser ---
+    // Scans the messy Excel text for keywords and forces it into our strict system options
+    const parsePaymentTerms = (rawTerm) => {
+        if (!rawTerm) return '';
+        const t = String(rawTerm).toLowerCase();
+        
+        if (t.includes('month')) return 'Monthly';
+        if (t.includes('quarter')) return 'Quarterly';
+        if (t.includes('semi')) return 'Semi-Annual';
+        // If it says "Full", "Fully Paid", or "Annual", it defaults to Annually
+        if (t.includes('full') || t.includes('annual') || t.includes('year')) return 'Annually';
+        
+        return rawTerm.trim(); // Fallback if it completely doesn't recognize the word
     };
 
     // Dictionary: Maps keywords to their column index
     const colMap = {
-        company: findCol(['company', 'business', 'client']),
-        contact1: findCol(['contact1', 'person1', 'name', 'contact']),
-        contact2: findCol(['contact2', 'person2']),
-        email1: findCol(['email1', 'emailaddress', 'email']),
-        email2: findCol(['email2']),
-        start: findCol(['start', 'date started']),
+        company: findCol(['company', 'business']),
+        contact1: findCol(['contactperson1', 'person1', 'contact1', 'primarycontact']),
+        contact2: findCol(['contactperson2', 'person2', 'contact2', 'secondarycontact']),
+        email1: findCol(['email1', 'primaryemail', 'emailaddress1', 'email']), 
+        email2: findCol(['email2', 'secondaryemail', 'emailaddress2']),
+        start: findCol(['start']),
         end: findCol(['end', 'expiry']),
         pkg: findCol(['package', 'tier', 'service']),
-        rate: findCol(['rate', 'price', 'fee', 'amount']),
-        terms: findCol(['payment', 'term', 'schedule', 'billing']), 
+        rate: findCol(['rate', 'agreed', 'price']),
+        terms: findCol(['term', 'payment']), 
         status: findCol(['status', 'state']), 
-        remarks: findCol(['remark', 'note', 'drive'])
+        remarks: findCol(['remark', 'note'])
     };
 
-    const sanitizedData = [];
-    
-    // --- FIX 3: Start looping AFTER the dynamic header row ---
-    for (let i = headerIndex + 1; i < rows.length; i++) {
-        const r = rows[i];
+    let idCounter = 1;
+    let validCount = 0;
+    let invalidCount = 0;
+
+    // Skip the header row (index 0) and process the actual data
+    const rowData = rawRows.slice(1).map(row => {
+        // Skip completely empty rows
+        if (!row.some(cell => cell && String(cell).trim() !== '')) return null;
+
+        const rawPackage = row[colMap.pkg] ? String(row[colMap.pkg]).trim() : '';
+        const isCustomInCsv = rawPackage.toLowerCase().startsWith('custom:');
         
-        // Safely extract the data, defaulting to an empty string if undefined
-        const safeGet = (idx) => idx !== -1 && r[idx] ? String(r[idx]).trim() : '';
-        
-        if (r.length < 2 || !safeGet(colMap.company)) continue; // Skip empty rows
+        const startDate = row[colMap.start] ? parseCsvDate(row[colMap.start]) : '';
+        const endDate = row[colMap.end] ? parseCsvDate(row[colMap.end]) : '';
 
-        // A. Package Smart-Router
-        let rawPkg = safeGet(colMap.pkg);
-        let finalPkg = '';
-        let customName = '';
-        if (rawPkg.toLowerCase().includes('virtual office') || rawPkg.includes('V.O')) finalPkg = 'Virtual Office Package';
-        else if (rawPkg.toLowerCase().includes('use of address')) finalPkg = 'Use of Address';
-        else if (rawPkg !== '') { finalPkg = 'Custom'; customName = rawPkg; }
-
-        // B. Financial Sanitizer
-        let rawRate = safeGet(colMap.rate);
-        let cleanRate = rawRate.replace(/[^0-9.]/g, ''); 
-
-        // C. Payment Terms Smart-Extractor
-        let rawTerms = safeGet(colMap.terms).toLowerCase();
-        let finalTerms = 'Monthly'; 
-        
-        if (rawTerms.includes('semi')) finalTerms = 'Semi-Annual';
-        else if (rawTerms.includes('quarter')) finalTerms = 'Quarterly';
-        else if (rawTerms.includes('annual') || rawTerms.includes('full')) finalTerms = 'Annually';
-        else if (rawTerms.includes('month')) finalTerms = 'Monthly';
-
-        // D. Date Parser
-        let formattedStart = '';
-        let formattedEnd = '';
-        try {
-            const s = safeGet(colMap.start);
-            const e = safeGet(colMap.end);
-            if (s) formattedStart = new Date(s).toISOString().split('T')[0];
-            if (e) formattedEnd = new Date(e).toISOString().split('T')[0];
-        } catch (e) { console.warn("Invalid date format in row", i); }
-
-        // E. Duration Auto-Calculator
-        let calcDuration = '';
-        if (formattedStart && formattedEnd) {
-            const sObj = new Date(formattedStart);
-            const eObj = new Date(formattedEnd);
-            if (eObj > sObj) {
-                const days = Math.round((eObj - sObj) / (1000*60*60*24)) + 1;
-                calcDuration = `${Math.round(days / 30.44)} mos`;
-            }
+        // Auto-calculate Duration
+        let calculatedDuration = '';
+        if (startDate && endDate) {
+            const sDate = new Date(startDate);
+            const eDate = new Date(endDate);
+            const msPerDay = 1000 * 60 * 60 * 24;
+            const totalDays = Math.round((eDate - sDate) / msPerDay) + 1;
+            const months = Math.max(1, Math.round(totalDays / 30.44));
+            calculatedDuration = `${months} mos`;
         }
+        
+        const stagingRow = {
+          id: idCounter++,
+          company_name: row[colMap.company] ? String(row[colMap.company]).trim() : '',
+          contact_person_1: row[colMap.contact1] ? String(row[colMap.contact1]).trim() : '',
+          contact_person_2: row[colMap.contact2] ? String(row[colMap.contact2]).trim() : '',
+          email_1: row[colMap.email1] ? String(row[colMap.email1]).trim() : '',
+          email_2: row[colMap.email2] ? String(row[colMap.email2]).trim() : '',
+          date_started: startDate,
+          end_date: endDate,
+          duration: calculatedDuration, 
+          package_tier: isCustomInCsv ? 'Custom' : rawPackage,
+          custom_package_name: isCustomInCsv ? rawPackage.substring(7).trim() : '', 
+          rate_per_month: row[colMap.rate] ? parseFloat(String(row[colMap.rate]).replace(/[^0-9.]/g, '')) || '' : '',
+          
+          // --- UPDATED: Pass the raw CSV cell through the Smart Parser ---
+          payment_terms: row[colMap.terms] ? parsePaymentTerms(row[colMap.terms]) : '',
+          
+          contract_status: row[colMap.status] ? String(row[colMap.status]).trim() : 'Active',
+          remarks: row[colMap.remarks] ? String(row[colMap.remarks]).trim() : ''
+        };
 
-        // F. Contract Status Auto-Calculator
-        let finalStatus = 'Active';
-        if (formattedEnd) {
-            const today = new Date();
-            const expiryDate = new Date(formattedEnd);
-            
-            // Normalize dates to midnight for accurate day comparison
-            today.setHours(0,0,0,0);
-            expiryDate.setHours(0,0,0,0);
-            
-            const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-            
-            if (daysUntilExpiry < 0) finalStatus = 'Expired';
-            else if (daysUntilExpiry <= 30) finalStatus = 'Pending Renewal';
-        }
+        // Inline validation
+        stagingRow.hasErrors = !stagingRow.company_name || !stagingRow.date_started || !stagingRow.end_date || !stagingRow.rate_per_month;
+        
+        if (!stagingRow.hasErrors) validCount++; else invalidCount++;
+        return stagingRow;
+    }).filter(row => row !== null); // Remove the skipped empty rows
 
-        sanitizedData.push({
-            id: `import_${Date.now()}_${i}`, 
-            company_name: safeGet(colMap.company),
-            contact_person_1: safeGet(colMap.contact1),
-            contact_person_2: safeGet(colMap.contact2),
-            email_1: safeGet(colMap.email1),
-            email_2: safeGet(colMap.email2),
-            date_started: formattedStart,
-            end_date: formattedEnd,
-            duration: calcDuration,
-            package_tier: finalPkg,
-            custom_package_name: customName,
-            rate_per_month: cleanRate,
-            payment_terms: finalTerms, 
-            contract_status: finalStatus, 
-            remarks: safeGet(colMap.remarks),
-            auto_email_enabled: true,
-            documents_submitted: false,
-            hasErrors: !safeGet(colMap.company) || !formattedStart || !cleanRate || !formattedEnd
-        });
-    }
-    
-    return sanitizedData;
+    // Save directly to state
+    setImportStaging(rowData);
+    setImportSummary({ total: rowData.length, valid: validCount, invalid: invalidCount });
   };
 
-  const handleFileUpload = (e) => {
+const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -465,11 +508,12 @@ export default function LPCVirtualOffice() {
     reader.onload = (evt) => {
         const text = evt.target.result;
         const parsedRows = parseCSV(text);
-        const cleanedData = processImportData(parsedRows);
         
-        setImportStaging(cleanedData);
+        // FIXED: We just trigger the engine. It handles all the data saving internally!
+        processImportData(parsedRows);
+        
         setShowImportModal(true); // Triggers Phase 3
-        e.target.value = null; // Reset input 
+        e.target.value = null; // Reset input so you can upload the same file again if needed
     };
     reader.readAsText(file);
   };
@@ -491,9 +535,29 @@ export default function LPCVirtualOffice() {
 
   // 3. Execution Function (Sends valid rows to backend)
   const executeBulkImport = async () => {
-    // Only extract rows that passed the logic engine without errors
     const validClients = importStaging.filter(c => !c.hasErrors);
     if (validClients.length === 0) return;
+
+    // --- NEW: Sanitize Payload ---
+    // Remove UI-only states (like id, errors, hasErrors) that cause strict backends to throw 400 Bad Request
+    const cleanPayload = validClients.map(client => ({
+      company_name: client.company_name,
+      contact_person_1: client.contact_person_1,
+      contact_person_2: client.contact_person_2,
+      email_1: client.email_1,
+      email_2: client.email_2,
+      date_started: client.date_started,
+      end_date: client.end_date,
+      duration: client.duration,
+      package_tier: client.package_tier,
+      custom_package_name: client.custom_package_name,
+      rate_per_month: client.rate_per_month,
+      payment_terms: client.payment_terms,
+      contract_status: client.contract_status,
+      remarks: client.remarks,
+      auto_email_enabled: true,
+      documents_submitted: false
+    }));
 
     setIsImporting(true);
     try {
@@ -501,15 +565,20 @@ export default function LPCVirtualOffice() {
       const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ clients: validClients, branch: 'LPC' }) // NOTE: Change to 'LPOG' in LPOGVirtualOffice.jsx
+        // IMPORTANT: Change 'LPOG' to 'LPC' when pasting this into the LPCVirtualOffice.jsx file!
+        body: JSON.stringify({ clients: cleanPayload, branch: 'LPC' }) 
       });
 
-      if (!response.ok) throw new Error('Failed to import clients.');
+      // Better Error Capture to show you exactly what the backend didn't like
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.message || `Backend rejected the data (Error ${response.status}).`);
+      }
 
       await fetchClients(); // Refresh the main table
       setShowImportModal(false);
       setImportStaging([]);
-      setActionAlert({ show: true, message: `Successfully imported ${validClients.length} clients!`, isError: false });
+      setActionAlert({ show: true, message: `Successfully imported ${cleanPayload.length} clients!`, isError: false });
     } catch (err) {
       setActionAlert({ show: true, message: err.message, isError: true });
     } finally {
@@ -1034,8 +1103,8 @@ export default function LPCVirtualOffice() {
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b pb-2">Billing & Status</h4>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Package Tier *</label>
-                  <select 
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">Service Type *</label>
+              <select 
                     required 
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
                     value={formData.package_tier} 
@@ -1043,22 +1112,24 @@ export default function LPCVirtualOffice() {
                       const selected = e.target.value;
                       let autoRate = ''; 
                       if (selected === 'Virtual Office Package') autoRate = 3500; 
+                      else if (selected === 'Use of Address') autoRate = 1375; // <-- NEW FIXED RATE
+                      
                       setFormData({
                           ...formData, package_tier: selected, rate_per_month: autoRate,
                           custom_package_name: selected === 'Custom' ? formData.custom_package_name : '' 
                       });
                     }}
                   >
-                    <option value="" disabled>-- Select Package --</option>
-                    <option value="Virtual Office Package">Virtual Office Package (₱3,500/mo)</option>
-                    <option value="Use of Address">Use of Address (Staff to encode)</option>
-                    <option value="Custom">Custom Package (Staff to encode)</option>
+                    <option value="" disabled>-- Select Service --</option>
+                    <option value="Virtual Office Package">Virtual Office (₱3,500/mo)</option>
+                    <option value="Use of Address">Use of Address (₱1,375/mo)</option>
+                    <option value="Custom">Custom Service (Staff to encode)</option>
                   </select>
                 </div>
 
                 {formData.package_tier === 'Custom' && (
                   <div className="animate-fade-in">
-                    <label className="mb-1 block text-xs font-semibold text-blue-700">Specify Custom Package *</label>
+                    <label className="mb-1 block text-xs font-semibold text-blue-700">Specify Custom Service *</label>
                     <input 
                       required type="text" placeholder="e.g. Virtual Office + 5 Days Desk"
                       className="w-full rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm"
@@ -1086,11 +1157,10 @@ export default function LPCVirtualOffice() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Terms *</label>
                   <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.payment_terms} onChange={(e) => setFormData({...formData, payment_terms: e.target.value})}>
                     <option value="" disabled>-- Select Term --</option>
-                    <option value="Full Payment">Full Payment</option>
                     <option value="Monthly">Monthly</option>
                     <option value="Quarterly">Quarterly</option>
                     <option value="Semi-Annual">Semi-Annual</option>
-                    <option value="Annual">Annual</option>
+                    <option value="Annually">Annually (Full Payment)</option>
                   </select>
                 </div>
 
@@ -1139,53 +1209,90 @@ export default function LPCVirtualOffice() {
 
               </div>
 
-              {/* COLUMN 4: Formal Financial Summary */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-slate-800 border-b pb-2">Financial Summary</h4>
-                
                 {paymentSchedule ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm animate-fade-in flex flex-col h-[calc(100%-2rem)]">
-                    <h5 className="text-sm font-bold text-slate-800 mb-1">Contract Valuation</h5>
-                    <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">
-                      Calculated based on the selected dates and monthly rate. Prorated amounts apply when starting or ending mid-month.
-                    </p>
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm animate-fade-in flex flex-col h-[calc(100%-2rem)] overflow-hidden">
+                    
+                    {/* Header */}
+                    <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
+                      <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Expected Billing Schedule</h5>
+                    </div>
 
-                    <div className="space-y-3 text-sm flex-1">
-                      {paymentSchedule.isProrated ? (
-                        <>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-600">First Month (Prorated):</span>
-                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.firstMonthAmount)}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-600">Standard Months ({paymentSchedule.monthsCount}x):</span>
-                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.recurringAmount)}/mo</span>
-                          </div>
-                          <div className="flex justify-between items-center pb-4 border-b border-slate-200">
-                            <span className="text-slate-600">Final Month (Prorated):</span>
-                            <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.finalMonthAmount)}</span>
-                          </div>
-                        </>
+                    {/* Body */}
+                    <div className="p-5 flex-1 flex flex-col gap-4 text-sm">
+                      {paymentSchedule.terms === 'Annually' ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">One-Time Upfront Payment</span>
+                          <span className="text-3xl font-black text-slate-800 tracking-tight">{formatCurrency(paymentSchedule.totalContractValue)}</span>
+                          {paymentSchedule.isProrated && (
+                            <p className="text-[10px] text-slate-400 mt-2 font-medium">Includes all standard months and prorated days.</p>
+                          )}
+                        </div>
                       ) : (
-                        <div className="flex justify-between items-center pb-4 border-b border-slate-200">
-                          <span className="text-slate-600">Standard Billing ({paymentSchedule.monthsCount}x):</span>
-                          <span className="font-semibold text-slate-800">{formatCurrency(paymentSchedule.recurringAmount)}/mo</span>
+                        <div className="space-y-4">
+                          {paymentSchedule.isProrated ? (
+                            <>
+                              <div className="flex justify-between items-end border-b border-slate-50 pb-3">
+                                <span className="text-slate-600 font-medium">First {paymentSchedule.installmentLabel} <span className="text-[10px] text-slate-400 block">(Prorated)</span></span>
+                                <span className="font-bold text-slate-800">{formatCurrency(paymentSchedule.firstInvoiceAmount)}</span>
+                              </div>
+                              
+                              {/* Dynamically hides if there are 0 standard invoices (e.g., 12-mo Semi-Annual) */}
+                              {paymentSchedule.standardInvoiceCount > 0 && (
+                                <div className="flex justify-between items-end border-b border-slate-50 pb-3">
+                                  <span className="text-slate-600 font-medium">
+                                    Standard {paymentSchedule.installmentLabel} {paymentSchedule.standardInvoiceCount > 1 ? `(${paymentSchedule.standardInvoiceCount}x)` : ''}
+                                  </span>
+                                  <span className="font-bold text-slate-800">
+                                    {formatCurrency(paymentSchedule.installmentAmount)}{paymentSchedule.terms === 'Monthly' ? '/mo' : ''}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Only shows a Final invoice if there is more than 1 billing cycle */}
+                              {paymentSchedule.totalInvoices > 1 && (
+                                <div className="flex justify-between items-end pb-2">
+                                  <span className="text-slate-600 font-medium">Final {paymentSchedule.installmentLabel} <span className="text-[10px] text-slate-400 block">(Prorated)</span></span>
+                                  <span className="font-bold text-slate-800">{formatCurrency(paymentSchedule.finalInvoiceAmount)}</span>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex justify-between items-center pb-2">
+                              <span className="text-slate-600 font-medium">
+                                Standard {paymentSchedule.installmentLabel} {paymentSchedule.standardInvoiceCount > 1 ? `(${paymentSchedule.standardInvoiceCount}x)` : ''}
+                              </span>
+                              <span className="font-bold text-slate-800">
+                                {formatCurrency(paymentSchedule.installmentAmount)}{paymentSchedule.terms === 'Monthly' ? '/mo' : ''}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
-                      
-                      <div className="flex justify-between items-center pt-2 mb-4">
-                        <span className="font-bold text-slate-800">Total Contract Value:</span>
-                        <span className="text-xl font-black text-blue-700">{formatCurrency(paymentSchedule.totalContractValue)}</span>
-                      </div>
                     </div>
+
+                    {/* Footer - Dynamic based on Terms */}
+                    {paymentSchedule.terms !== 'Annually' ? (
+                      <div className="bg-slate-800 text-white px-5 py-4 mt-auto">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">Total Contract Value</span>
+                          <span className="text-lg font-black text-[#d2f34c]">{formatCurrency(paymentSchedule.totalContractValue)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                       <div className="bg-slate-800 text-white px-5 py-4 mt-auto border-t border-slate-700">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">Status</span>
+                          <span className="text-sm font-bold text-[#d2f34c] uppercase tracking-wider">Fully Paid / Upfront</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 h-[calc(100%-2rem)] flex flex-col items-center justify-center text-center">
                     <svg className="w-8 h-8 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    <p className="text-xs text-slate-500 font-medium">Enter Start Date, End Date, and Rate to view the financial breakdown.</p>
+                    <p className="text-xs text-slate-500 font-medium">Enter Start Date, End Date, Rate, and Terms to view the billing schedule.</p>
                   </div>
                 )}
-              </div>
 
               {/* ACTION BUTTONS: Spanning all 4 columns */}
               <div className="col-span-1 md:col-span-4 mt-2 flex justify-end gap-3 border-t pt-5">
@@ -1297,16 +1404,21 @@ export default function LPCVirtualOffice() {
                 {/* NEW: Scrollable Wrapper for Horizontal & Vertical Scrolling */}
                 <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
                   <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[1200px]">
-                    <thead className="bg-slate-100 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+{/* Excel-Style Draggable Headers */}
+                    <thead className="bg-slate-100 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm select-none">
                       <tr>
-                        <th className="px-4 py-3 font-bold w-28">Status</th>
-                        <th className="px-4 py-3 font-bold">Company Name</th>
-                        <th className="px-4 py-3 font-bold">Email</th>
-                        <th className="px-4 py-3 font-bold">Package</th>
-                        <th className="px-4 py-3 font-bold w-36">Start Date</th>
-                        <th className="px-4 py-3 font-bold w-36">End Date</th>
-                        <th className="px-4 py-3 font-bold w-32">Rate (₱)</th>
-                        <th className="px-4 py-3 font-bold">Terms</th>
+                        <ResizableHeader title="Status" defaultWidth={110} />
+                        <ResizableHeader title="Company Name" defaultWidth={220} />
+                        <ResizableHeader title="Contact Person 1" defaultWidth={180} />
+                        <ResizableHeader title="Email" defaultWidth={220} />
+                        <ResizableHeader title="Start Date" defaultWidth={130} />
+                        <ResizableHeader title="End Date" defaultWidth={130} />
+                        <ResizableHeader title="Service Type" defaultWidth={240} />
+                        <ResizableHeader title="Rate" defaultWidth={140} />
+                        <ResizableHeader title="Terms" defaultWidth={140} />
+                        {/* --- NEW: ADD THESE TWO LINES --- */}
+                        <ResizableHeader title="Contract Status" defaultWidth={140} />
+                        <ResizableHeader title="Remarks" defaultWidth={250} />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1333,6 +1445,17 @@ export default function LPCVirtualOffice() {
                             />
                           </td>
 
+                          {/* Editable Contact Person 1 */}
+                          <td className="px-4 py-2">
+                            <input 
+                              type="text" 
+                              value={row.contact_person_1 || ''} 
+                              onChange={(e) => handleStagingEdit(row.id, 'contact_person_1', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all"
+                              placeholder="Optional..."
+                            />
+                          </td>
+
                           {/* Editable Email */}
                           <td className="px-4 py-2">
                             <input 
@@ -1343,17 +1466,30 @@ export default function LPCVirtualOffice() {
                             />
                           </td>
 
-                          {/* Editable Package */}
-                          <td className="px-4 py-2">
-                            <select 
-                              value={row.package_tier} 
-                              onChange={(e) => handleStagingEdit(row.id, 'package_tier', e.target.value)}
-                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all cursor-pointer"
-                            >
-                              <option value="Virtual Office Package">Virtual Office Package</option>
-                              <option value="Use of Address">Use of Address</option>
-                              <option value="Custom">Custom</option>
-                            </select>
+                          {/* Editable Service Type & Conditional Custom Input (LPC) */}
+                          <td className="px-4 py-2 min-w-56 align-top">
+                            <div className="flex flex-col gap-1.5">
+                              <select 
+                                value={row.package_tier || ''} 
+                                onChange={(e) => handleStagingEdit(row.id, 'package_tier', e.target.value)}
+                                className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all text-sm"
+                              >
+                                <option value="" disabled>-- Select Service --</option>
+                                <option value="Virtual Office Package">Virtual Office (₱3,500/mo)</option>
+                                <option value="Use of Address">Use of Address (₱1,375/mo)</option>
+                                <option value="Custom">Custom Service (Specify below)</option>
+                              </select>
+                              
+                              {row.package_tier === 'Custom' && (
+                                <input 
+                                  type="text" 
+                                  value={row.custom_package_name || ''} 
+                                  onChange={(e) => handleStagingEdit(row.id, 'custom_package_name', e.target.value)}
+                                  className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all text-sm"
+                                  placeholder="Specify Custom Service..."
+                                />
+                              )}
+                            </div>
                           </td>
 
                           {/* Editable Start Date */}
@@ -1402,6 +1538,30 @@ export default function LPCVirtualOffice() {
                               <option value="Semi-Annual">Semi-Annual</option>
                               <option value="Annually">Annually</option>
                             </select>
+                          </td>
+
+                          {/* --- NEW: Editable Contract Status --- */}
+                          <td className="px-4 py-2 align-top">
+                            <select 
+                              value={row.contract_status || 'Active'} 
+                              onChange={(e) => handleStagingEdit(row.id, 'contract_status', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all text-sm"
+                            >
+                              <option value="Active">Active</option>
+                              <option value="Expired">Expired</option>
+                              <option value="Terminated">Terminated</option>
+                            </select>
+                          </td>
+
+                          {/* --- NEW: Editable Remarks --- */}
+                          <td className="px-4 py-2 align-top">
+                            <input 
+                              type="text" 
+                              value={row.remarks || ''} 
+                              onChange={(e) => handleStagingEdit(row.id, 'remarks', e.target.value)}
+                              className="w-full bg-transparent px-2 py-1.5 rounded outline-none border border-transparent focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 transition-all text-sm"
+                              placeholder="No remarks..."
+                            />
                           </td>
 
                         </tr>

@@ -25,32 +25,6 @@ const BASE_TEMPLATE_WRAPPER = `
   </div>
 `;
 
-const SYSTEM_DEFAULT = {
-  id: 'system-automated-renewal',
-  name: 'System Default: Automated Renewal',
-  subject: 'Virtual Office Subscription Renewal Notice',
-  isSystem: true,
-  templateType: 'automated',
-  triggerEvent: 'subscription_renewal',
-  isHtml: true, 
-  attachments: [],
-  body: `
-    <div style="font-family: 'Inter', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); background-color: #ffffff;">
-      <div style="background-color: #1e293b; text-align: center; border-bottom: 3px solid #d2f34c;">
-        <img src="${launchpadLogo}" alt="Launchpad Business Logo" style="width: 100%; max-width: 600px; display: block;" />
-      </div>
-      <div style="padding: 40px 30px; color: #334155; line-height: 1.7; font-size: 15px;">
-        <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">Greetings, [Client Name]!</h2>
-        <p>We hope this email finds you well.</p>
-        <p>This is a formal notification regarding your <strong>Virtual Office</strong> subscription for <strong>[Company Name]</strong>. Our records indicate that your current subscription is scheduled to expire in <strong style="color: #eab308; font-size: 1.1em;">[X] days</strong> (on <strong>[Exact Expiry Date]</strong>).</p>
-        <p>To continue accessing the services and features of your Virtual Office, please renew your subscription at your earliest convenience. Maintaining an active subscription is vital for the continuity of your business operations.</p>
-        <p>Thank you for choosing Launchpad as your business partner.</p>
-        <br>
-        <p style="margin-bottom: 0;">Best Regards,<br/><strong style="color: #0f172a;">Launchpad Management Team</strong></p>
-      </div>
-    </div>
-  `
-};
 
 export default function EmailTemplates() {
   const [currentView, setCurrentView] = useState('library'); 
@@ -346,7 +320,7 @@ export default function EmailTemplates() {
     } catch (error) { console.error("Delete error:", error); }
   };
 
-  const allTemplates = [SYSTEM_DEFAULT, ...savedTemplates];
+  const allTemplates = [ ...savedTemplates];
 
   // NEW: Search Filtering Logic
   const filteredTemplates = allTemplates.filter(t => 
