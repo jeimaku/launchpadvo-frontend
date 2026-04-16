@@ -1,27 +1,24 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../components/Sidebar';
 import NotificationBell from '../../components/NotificationBell';
-import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Sector } from 'recharts';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
-    activeClients: 0, expiringSoon: 0, totallyExpired: 0, missedEmails: 0
+    activeClients: 0, expiringSoon: 0, totallyExpired: 0, missedEmails: 0,
+    pendingRevenue: 0, verifiedRevenue: 0 
   });
-  const [packageData, setPackageData] = useState([]);
-  // --- INTERACTIVE CHART STATE ---
+  
   const [portfolioData, setPortfolioData] = useState({
     LPC: { total: 0, VO: 0, UOA: 0, Custom: 0 },
     LPOG: { total: 0, VO: 0, UOA: 0, Custom: 0 }
   });
-  const [activeIndex, setActiveIndex] = useState(0); 
-  const [drilldownView, setDrilldownView] = useState({ active: false, branch: null });  const [recentActivity, setRecentActivity] = useState([]);
+  
+  const [recentActivity, setRecentActivity] = useState([]);
   const [actionNeededClients, setActionNeededClients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const userName = localStorage.getItem('userName') || 'User';
 
-  
-  
   useEffect(() => {
     fetchDashboardData();
   }, []);
@@ -32,11 +29,11 @@ export default function Dashboard() {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // Fetch all operational data simultaneously
-      const [lpcRes, lpogRes, logsRes] = await Promise.all([
+      const [lpcRes, lpogRes, logsRes, paymentsRes] = await Promise.all([
         fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPC`, { headers }),
         fetch(`http://${window.location.hostname}:5000/api/virtual-offices?branch=LPOG`, { headers }),
-        fetch(`http://${window.location.hostname}:5000/api/emails/logs`, { headers })
+        fetch(`http://${window.location.hostname}:5000/api/emails/logs`, { headers }),
+        fetch(`http://${window.location.hostname}:5000/api/payments`, { headers }) 
       ]);
 
       if (lpcRes.ok && lpogRes.ok && logsRes.ok) {
@@ -44,6 +41,16 @@ export default function Dashboard() {
         const lpogClients = await lpogRes.json();
         const allClients = [...lpcClients, ...lpogClients];
         const emailLogs = await logsRes.json();
+        
+        let pendingAmt = 0;
+        let verifiedAmt = 0;
+        if (paymentsRes.ok) {
+          const payments = await paymentsRes.json();
+          payments.forEach(p => {
+             if (p.status === 'Pending') pendingAmt += parseFloat(p.amount_paid || 0);
+             if (p.status === 'Verified') verifiedAmt += parseFloat(p.amount_paid || 0);
+          });
+        }
 
         // 1. SMART DATE MATH & EMAIL VERIFICATION
         let activeCount = 0;
@@ -75,7 +82,7 @@ export default function Dashboard() {
               activeCount++;
             }
           } else {
-            activeCount++; // Failsafe for no end date
+            activeCount++; 
           }
 
           // Email Verification Logic
@@ -100,10 +107,12 @@ export default function Dashboard() {
           activeClients: activeCount,
           expiringSoon: expiringCount,
           totallyExpired: expiredCount,
-          missedEmails: missedEmailsCount
+          missedEmails: missedEmailsCount,
+          pendingRevenue: pendingAmt,
+          verifiedRevenue: verifiedAmt
         });
 
-        // 2. Format Data for Interactive Drill-Down
+        // 2. Format Data for Service Distribution 
         let lpcVO = 0, lpcUOA = 0, lpcCustom = 0;
         let lpogVO = 0, lpogUOA = 0, lpogCustom = 0;
 
@@ -125,11 +134,11 @@ export default function Dashboard() {
         });
 
         // 3. Get Recent System Activity 
-        setRecentActivity(emailLogs.slice(0, 20));
+        setRecentActivity(emailLogs.slice(0, 50)); 
 
-        // 4. Sort Action List by Urgency (Most expired first)
+        // 4. Sort Action List by Urgency 
         actionNeeded.sort((a, b) => new Date(a.end_date) - new Date(b.end_date));
-        setActionNeededClients(actionNeeded.slice(0, 10)); // Increased to top 10 for better visibility
+        setActionNeededClients(actionNeeded); 
       }
     } catch (error) {
       console.error("Error loading operational dashboard:", error);
@@ -138,65 +147,35 @@ export default function Dashboard() {
     }
   };
 
-  // --- INTERACTIVE CHART LOGIC ---
-  const renderActiveShape = (props) => {
-    const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value, percent } = props;
-    
-    return (
-      <g>
-        {/* Adjusted Y-coordinates to fit the new percentage text perfectly */}
-        <text x={cx} y={cy - 16} dy={0} textAnchor="middle" fill="#64748b" className="text-[10px] font-black uppercase tracking-widest">{payload.name}</text>
-        <text x={cx} y={cy + 8} dy={0} textAnchor="middle" fill={fill} className="text-3xl font-black">{value}</text>
-        
-        {/* NEW: Automatically calculated percentage */}
-        <text x={cx} y={cy + 26} dy={0} textAnchor="middle" fill="#94a3b8" className="text-xs font-bold">
-          {(percent * 100).toFixed(1)}%
-        </text>
-        
-        {/* Pulse prompt pushed down slightly */}
-        {!drilldownView.active && (
-          <text x={cx} y={cy + 42} dy={0} textAnchor="middle" fill="#cbd5e1" className="text-[9px] font-bold uppercase tracking-wider animate-pulse">Click to explore</text>
-        )}
-        
-        <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 6} startAngle={startAngle} endAngle={endAngle} fill={fill} className="transition-all duration-300 cursor-pointer" />
-        <Sector cx={cx} cy={cy} startAngle={startAngle} endAngle={endAngle} innerRadius={innerRadius - 8} outerRadius={innerRadius - 4} fill={fill} />
-      </g>
-    );
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
   };
-
-  // Dynamically build the chart data based on what view the user is in
-  let displayData = [];
-  if (!drilldownView.active) {
-    displayData = [
-      { id: 'LPC', name: 'LPC', value: portfolioData.LPC.total, color: '#1e293b' },
-      { id: 'LPOG', name: 'LPOG', value: portfolioData.LPOG.total, color: '#d2f34c' }
-    ].filter(d => d.value > 0);
-  } else {
-    const bd = portfolioData[drilldownView.branch];
-    const isLPC = drilldownView.branch === 'LPC';
-    // LPC uses Blue themes, LPOG uses Yellow/Orange themes
-    displayData = [
-      { name: 'Virtual Office', value: bd.VO, color: isLPC ? '#1e293b' : '#d2f34c' },
-      { name: 'Use of Address', value: bd.UOA, color: isLPC ? '#3b82f6' : '#facc15' },
-      { name: 'Custom Packages', value: bd.Custom, color: isLPC ? '#0ea5e9' : '#fb923c' }
-    ].filter(d => d.value > 0);
-  }
-
-  const handlePieClick = (entry) => {
-    if (!drilldownView.active && entry.id) {
-      setDrilldownView({ active: true, branch: entry.id });
-      setActiveIndex(0); 
-    }
-  };
-
-  // --- NEW: Calculate the current total for the legend percentages ---
-  const currentTotal = displayData.reduce((sum, item) => sum + item.value, 0);
 
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans">
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        @keyframes shimmer {
+          100% {
+            transform: translateX(100%);
+          }
+        }
+
+        .animate-fade-in {
+          animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       <Sidebar />
 
-      <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen custom-scrollbar">
+      <div className="flex-1 p-6 md:p-8 overflow-hidden overflow-y-auto max-h-screen custom-scrollbar">
         
         {/* HEADER SECTION */}
         <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -223,75 +202,98 @@ export default function Dashboard() {
           <div className="space-y-6 animate-fade-in">
             
             {/* ========================================== */}
-            {/* OPERATIONAL KPI CARDS                      */}
+            {/* ROBUST KPI CARDS (6-Grid)                  */}
             {/* ========================================== */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               
               {/* Active Contracts - Emerald Accent */}
               <div className="bg-white p-5 rounded-xl border-l-4 border-l-emerald-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Active Contracts</p>
-                  <p className="text-3xl font-black text-slate-800">{stats.activeClients}</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Active Contracts</p>
+                  <p className="text-2xl font-black text-slate-800">{stats.activeClients}</p>
                 </div>
                 <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500 shadow-inner">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
                 </div>
               </div>
 
               {/* Expiring Soon (30 Days) - Orange Accent */}
               <div className="bg-white p-5 rounded-xl border-l-4 border-l-orange-400 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Expiring (≤ 30 Days)</p>
-                  <p className="text-3xl font-black text-slate-800">{stats.expiringSoon}</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Expiring (≤ 30 Days)</p>
+                  <p className="text-2xl font-black text-slate-800">{stats.expiringSoon}</p>
                 </div>
                 <div className="p-3 bg-orange-50 rounded-xl text-orange-500 shadow-inner">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                </div>
-              </div>
-
-              {/* Totally Expired - Rose/Red Accent */}
-              <div className="bg-white p-5 rounded-xl border-l-4 border-l-rose-500 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-                <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Totally Expired</p>
-                  <p className="text-3xl font-black text-slate-800">{stats.totallyExpired}</p>
-                </div>
-                <div className="p-3 bg-rose-50 rounded-xl text-rose-500 shadow-inner">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 </div>
               </div>
 
               {/* Missed Emails (Feedback) - Purple Accent */}
               <div className="bg-white p-5 rounded-xl border-l-4 border-l-purple-500 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Missed Auto-Emails</p>
-                  <p className="text-3xl font-black text-slate-800">{stats.missedEmails}</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Missed Auto-Emails</p>
+                  <p className="text-2xl font-black text-slate-800">{stats.missedEmails}</p>
                 </div>
                 <div className="p-3 bg-purple-50 rounded-xl text-purple-600 shadow-inner">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </div>
+              </div>
+
+              {/* Total Verified Revenue */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-green-500 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Verified Revenue</p>
+                  <p className="text-2xl font-black text-slate-800">{formatCurrency(stats.verifiedRevenue)}</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-xl text-green-600 shadow-inner">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+              </div>
+
+              {/* Pending Verification */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-blue-500 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Pending Verification</p>
+                  <p className="text-2xl font-black text-slate-800">{formatCurrency(stats.pendingRevenue)}</p>
+                </div>
+                <div className="p-3 bg-blue-50 rounded-xl text-blue-600 shadow-inner">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+              </div>
+
+              {/* Totally Expired - Rose/Red Accent */}
+              <div className="bg-white p-5 rounded-xl border-l-4 border-l-rose-500 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow opacity-90">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Totally Expired</p>
+                  <p className="text-2xl font-black text-rose-600">{stats.totallyExpired}</p>
+                </div>
+                <div className="p-3 bg-rose-50 rounded-xl text-rose-500 shadow-inner">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                 </div>
               </div>
 
             </div>
 
             {/* ========================================== */}
-            {/* CHARTS ROW                                 */}
+            {/* WIDGET ROW                                 */}
             {/* ========================================== */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
-              {/* Priority Action Table (NOW INCLUDES EMAIL FEEDBACK) */}
+              {/* SCROLLABLE Action Table */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-2 flex flex-col overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-20">
                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Action List & Feedback</h3>
                   <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md uppercase tracking-wider border border-slate-200">Critical Contracts</span>
                 </div>
-                <div className="overflow-x-auto flex-1 custom-scrollbar">
-                  <table className="w-full text-left text-sm whitespace-nowrap">
-                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                
+                <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar flex-1 relative">
+                  <table className="w-full text-left text-sm whitespace-nowrap min-w-[600px]">
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                       <tr>
-                        <th className="px-6 py-4 font-bold">Company</th>
-                        <th className="px-6 py-4 font-bold">Branch</th>
-                        <th className="px-6 py-4 font-bold">Status</th>
-                        <th className="px-6 py-4 font-bold">Auto-Email Tracker</th>
+                        <th className="px-6 py-3 font-bold">Company</th>
+                        <th className="px-6 py-3 font-bold">Branch</th>
+                        <th className="px-6 py-3 font-bold">Status</th>
+                        <th className="px-6 py-3 font-bold">Auto-Email Tracker</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -308,7 +310,6 @@ export default function Dashboard() {
                               </span>
                             </td>
                             <td className="px-6 py-4">
-                              {/* FEEDBACK TAGS */}
                               {client.emailStatus === 'Disabled' && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200 shadow-sm">System Disabled</span>}
                               {client.emailStatus === 'Sent' && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 shadow-sm">✅ Sent by System</span>}
                               {client.emailStatus === 'Pending / Failed' && <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-200 shadow-sm">⚠️ No Email Sent</span>}
@@ -323,66 +324,62 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Interactive Drill-Down Pie Chart */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-between relative">
-                
-                {/* Header with dynamic Back Button */}
-                <div className="flex justify-between items-center w-full">
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">{drilldownView.active ? `${drilldownView.branch} Services` : 'Service Distribution'}</h3>
-                  {drilldownView.active && (
-                    <button 
-                      onClick={() => { setDrilldownView({ active: false, branch: null }); setActiveIndex(0); }}
-                      className="text-[10px] font-bold uppercase tracking-wider text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors"
-                    >
-                      ← Back
-                    </button>
-                  )}
-                </div>
-                
-                <div className="h-48 w-full mt-4">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={50}>
-                    <PieChart>
-                      <Pie 
-                        activeIndex={activeIndex}
-                        activeShape={renderActiveShape}
-                        data={displayData} 
-                        cx="50%" cy="50%" 
-                        innerRadius={65} outerRadius={80} 
-                        dataKey="value" 
-                        stroke="none"
-                        onMouseEnter={(_, index) => setActiveIndex(index)}
-                        onClick={(entry) => handlePieClick(entry)}
-                      >
-                        {displayData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} className="cursor-pointer transition-opacity duration-300 hover:opacity-90" />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
+              {/* CLEAN Dual-Branch Service Distribution Board */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col relative overflow-hidden">
+                <div className="flex justify-between items-center w-full px-6 py-5 border-b border-slate-100 bg-white shrink-0 z-20">
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Service Distribution</h3>
+                  <div className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2.5 py-1 rounded uppercase tracking-wider border border-slate-200">
+                    Total Clients: {portfolioData.LPC.total + portfolioData.LPOG.total}
+                  </div>
                 </div>
 
-                {/* Dynamic Legend with Percentages */}
-                <div className={`grid mt-4 w-full pt-4 border-t border-slate-100 ${drilldownView.active ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'}`}>
-                  {displayData.map((pkg, index) => (
-                    <div 
-                      key={pkg.name} 
-                      onClick={() => handlePieClick(pkg)}
-                      className={`flex flex-col p-2 rounded-lg transition-colors cursor-pointer ${activeIndex === index ? 'bg-slate-50 shadow-sm border border-slate-100' : 'border border-transparent hover:bg-slate-50/50'}`}
-                      onMouseEnter={() => setActiveIndex(index)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: pkg.color }}></span>
-                        <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${activeIndex === index ? 'text-slate-900' : 'text-slate-500'}`} title={pkg.name}>
-                          {pkg.name}
-                        </span>
+                <div className="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 bg-slate-50/30">
+                  {/* Branch Data Loop */}
+                  {[
+                    { id: 'LPC', label: 'LPC Branch', data: portfolioData.LPC, color: 'bg-slate-800', accent: 'text-blue-600' },
+                    { id: 'LPOG', label: 'LPOG Branch', data: portfolioData.LPOG, color: 'bg-[#d2f34c]', accent: 'text-[#8ca81b]' }
+                  ].map((branch) => (
+                    <div key={branch.id} className="flex flex-col">
+                      <div className="flex justify-between items-end mb-4">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-5 rounded-full ${branch.color}`}></span>
+                          <h4 className="font-black text-slate-800 text-base tracking-tight">{branch.label}</h4>
+                        </div>
+                        <span className="text-sm font-black text-slate-500">{branch.data.total} Total</span>
                       </div>
-                      <span className={`text-sm font-black pl-4 flex items-baseline gap-1.5 ${activeIndex === index ? 'text-slate-900' : 'text-slate-600'}`}>
-                        {pkg.value}
-                        {/* NEW: Legend Percentage */}
-                        <span className="text-[10px] text-slate-400 font-bold">
-                          ({((pkg.value / currentTotal) * 100).toFixed(1)}%)
-                        </span>
-                      </span>
+
+                      <div className="space-y-5">
+                        {[
+                          { label: 'Virtual Office', val: branch.data.VO },
+                          { label: 'Use of Address', val: branch.data.UOA },
+                          { label: 'Custom Packages', val: branch.data.Custom }
+                        ].map((item, idx) => {
+                          const percentage = branch.data.total > 0 ? Math.round((item.val / branch.data.total) * 100) : 0;
+                          return (
+                            <div key={idx} className="group">
+                              <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-tight group-hover:text-slate-900 transition-colors">
+                                  {item.label}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-black text-slate-800">{item.val}</span>
+                                  <span className="text-[10px] font-bold text-slate-400">({percentage}%)</span>
+                                </div>
+                              </div>
+                              {/* Interactive Animated Bar */}
+                              <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                                <div 
+                                  className={`h-full ${branch.color} rounded-full transition-all duration-1000 ease-out shadow-sm`} 
+                                  style={{ width: isLoading ? '0%' : `${percentage}%` }}
+                                >
+                                  {/* Subtle Shine effect for interactivity */}
+                                  <div className="w-full h-full opacity-20 bg-gradient-to-r from-transparent via-white to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -401,16 +398,14 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              {/* NEW SCROLLABLE WRAPPER */}
-              <div className="overflow-x-auto overflow-y-auto max-h-[400px] custom-scrollbar relative">
+              <div className="overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar relative">
                 <table className="w-full text-left text-sm whitespace-nowrap min-w-[600px]">
-                  {/* STICKY HEADER */}
-                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                  <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                     <tr>
-                      <th className="px-6 py-4 font-bold">Timestamp</th>
-                      <th className="px-6 py-4 font-bold">Trigger Type</th>
-                      <th className="px-6 py-4 font-bold">Recipient</th>
-                      <th className="px-6 py-4 font-bold">Subject</th>
+                      <th className="px-6 py-3 font-bold">Timestamp</th>
+                      <th className="px-6 py-3 font-bold">Trigger Type</th>
+                      <th className="px-6 py-3 font-bold">Recipient</th>
+                      <th className="px-6 py-3 font-bold">Subject</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">

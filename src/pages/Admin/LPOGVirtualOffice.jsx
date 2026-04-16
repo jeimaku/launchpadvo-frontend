@@ -73,6 +73,33 @@ export default function LPOGVirtualOffice() {
   // --- ADD THIS MISSING LINE! ---
   const [isSendingDoc, setIsSendingDoc] = useState(false);
 
+  // --- TABLE INSIGHTS CALCULATOR ---
+  // Calculates exactly what to show in the table without opening the modal
+  const getTableInsights = (client) => {
+    if (!client.end_date || !client.date_started) return null;
+    
+    const end = new Date(client.end_date);
+    const start = new Date(client.date_started);
+    
+    // Doc Request Date (90 Days after Start)
+    const docDate = new Date(start);
+    docDate.setDate(docDate.getDate() + 90);
+    
+    // Renewal Date (30 Days before End)
+    const renDate = new Date(end);
+    renDate.setDate(renDate.getDate() - 30);
+    
+    // Termination Date (30 Days after End)
+    const termDate = new Date(end);
+    termDate.setDate(termDate.getDate() + 30);
+
+    return {
+      docDate: docDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+      renewalDate: renDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+      termDate: termDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    };
+  };
+
   const [isImporting, setIsImporting] = useState(false);
   
   // FIXED: Added missing import states to prevent ReferenceErrors!
@@ -84,10 +111,116 @@ export default function LPOGVirtualOffice() {
     date_started: '', duration: '', end_date: '', package_tier: '', custom_package_name: '', 
     rate_per_month: '', payment_info: '', payment_terms: '', contract_status: 'Active', remarks: '',
     auto_email_enabled: true, // NEW: Defaults to ON
-    documents_submitted: false // NEW: Defaults to OFF
+    documents_submitted: false, // NEW: Defaults to OFF
+    custom_attachment: null
   };
 
   const [formData, setFormData] = useState(initialFormState);
+
+  // --- MULTIPLE FILE HANDLER WITH ROUTING ---
+  const handleCustomAttachmentChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    files.forEach(file => {
+        if (file.size > 5 * 1024 * 1024) {
+            setErrorMessage(`File ${file.name} is too large. Max size is 5MB.`);
+            return;
+        }
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            setFormData(prev => {
+                const exists = prev.custom_attachments?.some(a => a.name === file.name);
+                if (exists) return prev;
+                
+                const updatedAttachments = [
+                    ...(prev.custom_attachments || []), 
+                    { 
+                      name: file.name, 
+                      type: file.type, 
+                      base64: reader.result,
+                      // NEW: Default to attaching to the Renewal email to save clicks
+                      triggers: ['subscription_renewal'] 
+                    }
+                ];
+                return { ...prev, custom_attachments: updatedAttachments };
+            });
+        };
+    });
+    e.target.value = null; 
+  };
+
+  const removeCustomAttachment = (indexToRemove) => {
+    setFormData(prev => ({
+        ...prev,
+        custom_attachments: prev.custom_attachments.filter((_, index) => index !== indexToRemove)
+    }));
+  };
+
+// --- TOGGLE EMAIL ROUTING FOR SPECIFIC FILES ---
+  const toggleAttachmentTrigger = (fileIndex, triggerName) => {
+    setFormData(prev => {
+      // 1. Copy the main array
+      const updatedAttachments = [...prev.custom_attachments];
+      
+      // 2. CRITICAL FIX: Create a brand new copy of the specific file object 
+      // so React knows it has completely changed and forces a re-render.
+      const fileToUpdate = { ...updatedAttachments[fileIndex] };
+      
+      const currentTriggers = fileToUpdate.triggers || []; 
+      
+      // 3. Toggle the trigger logic
+      if (currentTriggers.includes(triggerName)) {
+        fileToUpdate.triggers = currentTriggers.filter(t => t !== triggerName);
+      } else {
+        fileToUpdate.triggers = [...currentTriggers, triggerName];
+      }
+      
+      // 4. Put the freshly updated object back into the array
+      updatedAttachments[fileIndex] = fileToUpdate;
+      
+      return { ...prev, custom_attachments: updatedAttachments };
+    });
+  };
+
+  // --- SMART DATE CALCULATOR ---
+  const getNextAutomatedEmail = () => {
+    const { end_date, contract_status, auto_email_enabled, documents_submitted } = formData;
+    if (!auto_email_enabled) return { text: "System Paused", color: "text-slate-400" };
+    if (!end_date) return { text: "Waiting for End Date...", color: "text-slate-400" };
+    
+    const end = new Date(end_date);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    if (contract_status === 'Active') {
+        const firstNotice = new Date(end);
+        firstNotice.setDate(firstNotice.getDate() - 30); // 30 days before
+        if (today < firstNotice) return { 
+            text: `Renewal Notice on ${firstNotice.toLocaleDateString()}`, 
+            color: "text-emerald-600" 
+        };
+        return { text: "Renewal Active (Weekly)", color: "text-amber-500" };
+    } 
+    if (contract_status === 'Expired' || contract_status === 'Pending Renewal') {
+        const termNotice = new Date(end);
+        termNotice.setDate(termNotice.getDate() + 30); // 30 days after
+        if (today <= termNotice) return { 
+            text: `Termination Notice on ${termNotice.toLocaleDateString()}`, 
+            color: "text-red-500" 
+        };
+        if (!documents_submitted) {
+            const docNotice = new Date(end);
+            docNotice.setDate(docNotice.getDate() + 90); // 90 days after
+            if (today <= docNotice) return { 
+                text: `Doc Request on ${docNotice.toLocaleDateString()}`, 
+                color: "text-amber-600" 
+            };
+        }
+    }
+    return { text: "No pending emails", color: "text-slate-400" };
+  };
 
   // NEW: Holds the auto-calculated breakdown for the UI preview
   const [paymentSchedule, setPaymentSchedule] = useState(null);
@@ -639,25 +772,36 @@ const handleFileUpload = (e) => {
   };
 
   const handleEditClick = (client) => {
-
-    setFormData({
-       ...client,
-       auto_email_enabled: client.auto_email_enabled === 1 || client.auto_email_enabled === true,
-       documents_submitted: client.documents_submitted === 1 || client.documents_submitted === true
-    });
-
     setEditingId(client.id);
     let isCustom = client.package_tier.startsWith('Custom:');
     let baseTier = isCustom ? 'Custom' : client.package_tier;
     let customName = isCustom ? client.package_tier.replace('Custom: ', '') : '';
+
+    // --- NEW: Safely parse the database string back into a JavaScript array ---
+    let parsedAttachments = [];
+    if (client.custom_attachments) {
+        try {
+            parsedAttachments = typeof client.custom_attachments === 'string' 
+                ? JSON.parse(client.custom_attachments) 
+                : client.custom_attachments;
+        } catch (error) {
+            console.error("Failed to parse custom attachments:", error);
+            parsedAttachments = [];
+        }
+    }
 
     setFormData({
       ...client,
       date_started: client.date_started ? client.date_started.split('T')[0] : '',
       end_date: client.end_date ? client.end_date.split('T')[0] : '',
       package_tier: baseTier,
-      custom_package_name: customName
+      custom_package_name: customName,
+      // --- BULLETPROOF FRONTEND CHECK ---
+      auto_email_enabled: client.auto_email_enabled == 1 || client.auto_email_enabled === '1' || client.auto_email_enabled === true,
+      documents_submitted: client.documents_submitted == 1 || client.documents_submitted === '1' || client.documents_submitted === true,
+      custom_attachments: parsedAttachments 
     });
+    
     setErrorMessage('');
     setShowFormModal(true);
   };
@@ -688,8 +832,15 @@ const handleFileUpload = (e) => {
       ? `Custom: ${formData.custom_package_name}` 
       : formData.package_tier;
 
-    const payload = { ...formData, package_tier: finalPackageTier, branch: 'LPOG' };
-    
+    const payload = { 
+      ...formData, 
+      package_tier: finalPackageTier, 
+      branch: 'LPOG',
+      // --- FORCE STRICT NUMBERS BEFORE SENDING ---
+      auto_email_enabled: formData.auto_email_enabled ? 1 : 0,
+      documents_submitted: formData.documents_submitted ? 1 : 0
+    };   
+
     // FIXED: Removed hardcoded IP
     const url = actionType === 'EDIT' 
       ? `http://${window.location.hostname}:5000/api/virtual-offices/${clientId}` 
@@ -912,64 +1063,85 @@ const handleFileUpload = (e) => {
             <table className="w-full text-left text-sm text-slate-600">
               <thead className="bg-slate-50 text-slate-500 border-b border-slate-100 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Company & Contacts</th>
-                  <th className="px-6 py-4 font-semibold">Package & Emails</th>
-                  <th className="px-6 py-4 font-semibold">Duration & Dates</th>
-                  <th className="px-6 py-4 font-semibold">Rate & Terms</th>
-                  <th className="px-6 py-4 font-semibold">Status</th>
-                  <th className="px-6 py-4 font-semibold text-center">Actions</th>
+                  <th className="px-4 py-4 font-semibold">Company & Contacts</th>
+                  <th className="px-4 py-4 font-semibold">Package & Emails</th>
+                  <th className="px-4 py-4 font-semibold">Rate & Terms</th>
+                  <th className="px-4 py-4 font-semibold">Contract & Automation Insights</th>
+                  <th className="px-4 py-4 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {currentItems.length > 0 ? (
-                  currentItems.map(client => (
+                    currentItems.map(client => {
+                    const insights = getTableInsights(client);
+
+                    // --- BULLETPROOF TABLE READERS ---
+                    const isAutoEnabled = client.auto_email_enabled == 1 || client.auto_email_enabled === '1' || client.auto_email_enabled === true;
+                    const isDocsSubmitted = client.documents_submitted == 1 || client.documents_submitted === '1' || client.documents_submitted === true;
+                    
+                    return (
                     <tr key={client.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-4">
                         <p className="font-bold text-slate-800">{client.company_name}</p>
                         {client.contact_person_1 && <p className="text-xs text-slate-500">1: {client.contact_person_1}</p>}
                       </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-block px-2 py-1 mb-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded">{client.package_tier}</span>
+                      <td className="px-4 py-4">
+                        <span className="inline-block px-2 py-1 mb-1 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-wider rounded">{client.package_tier}</span>
                         <p className="text-xs text-slate-500">{client.email_1 || '-'}</p>
                       </td>
-                      <td className="px-6 py-4">
-                        <p className="font-semibold text-slate-700">{client.duration}</p>
-                        <p className="text-xs text-slate-500">{formatDate(client.date_started)} to {formatDate(client.end_date)}</p>
-                      </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-4">
                         <p className="font-semibold text-slate-800">{formatCurrency(client.rate_per_month)} /mo</p>
-                        <p className="text-xs font-bold text-[#b8d839] uppercase tracking-wide mt-0.5">{client.payment_terms}</p>
+                        <p className="text-[10px] font-black text-[#b8d839] uppercase tracking-wider mt-0.5">{client.payment_terms}</p>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          client.contract_status === 'Active' ? 'bg-[#d2f34c]/20 text-slate-800' : 
-                          client.contract_status === 'Pending Renewal' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {client.contract_status}
-                        </span>
+                      
+                      {/* --- THE NEW AUTOMATION INSIGHTS COLUMN --- */}
+                      <td className="px-4 py-3 align-top min-w-[240px]">
+                        <div className="flex flex-col gap-2">
+                          
+                          {/* Top: Core Status & Dates */}
+                          <div className="flex items-center justify-between">
+                            <span className={`px-2 py-0.5 rounded-sm text-[10px] font-black uppercase tracking-widest ${
+                              client.contract_status === 'Active' ? 'bg-[#d2f34c]/30 text-slate-800' : 
+                              client.contract_status === 'Pending Renewal' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
+                            }`}>
+                              {client.contract_status}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold">
+                              {formatDate(client.date_started)} — {formatDate(client.end_date)}
+                            </span>
+                          </div>
+
+                          {/* Bottom: Automation Trackers */}
+                          <div className="grid grid-cols-1 gap-1 border-t border-slate-100 pt-1.5">
+                            
+                            {/* Email Tracker */}
+                            {!isAutoEnabled ? (
+                               <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1.5">🛑 Emails Paused</span>
+                            ) : client.contract_status === 'Active' ? (
+                               <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1.5">📧 Renewal: {insights?.renewalDate || 'N/A'}</span>
+                            ) : (
+                               <span className="text-[10px] text-red-600 font-bold flex items-center gap-1.5">📧 Termination: {insights?.termDate || 'N/A'}</span>
+                            )}
+
+                            {/* Document Tracker */}
+                            {isDocsSubmitted ? (
+                               <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1.5">✅ Docs Surrendered</span>
+                            ) : (
+                               <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1.5">⏳ Doc Req: {insights?.docDate || 'N/A'}</span>
+                            )}
+                          </div>
+
+                        </div>
                       </td>
-                      <td className="px-6 py-4 flex items-center justify-center gap-2">
-                        {/* NEW QUICK ACTION BUTTON */}
-                        <button 
-                          onClick={() => triggerDocRequest(client)}
-                          disabled={isSendingDoc || client.documents_submitted}
-                          className={`p-1.5 rounded transition-colors ${client.documents_submitted ? 'text-slate-300 cursor-not-allowed' : 'text-amber-500 hover:bg-amber-50'}`} 
-                          title={client.documents_submitted ? "Documents already submitted" : "Send Document Request Email"}
-                        >
-                          📄
-                        </button>
-                        
-                        <button 
-                          onClick={() => handleEditClick(client)}
-                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-colors" title="Edit"
-                        >✏️</button>
-                        <button 
-                          onClick={() => setConfirmModal({ show: true, actionType: 'DELETE', clientId: client.id })}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete"
-                        >🗑️</button>
+
+                      <td className="px-4 py-4 flex items-center justify-center gap-1.5 h-full mt-2">
+                        <button onClick={() => triggerDocRequest(client)} disabled={isSendingDoc || client.documents_submitted} className={`p-1.5 rounded transition-colors ${client.documents_submitted ? 'text-slate-300 cursor-not-allowed' : 'text-amber-500 hover:bg-amber-50'}`} title={client.documents_submitted ? "Documents already submitted" : "Send Document Request Email"}>📄</button>
+                        <button onClick={() => handleEditClick(client)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-colors" title="Edit">✏️</button>
+                        <button onClick={() => setConfirmModal({ show: true, actionType: 'DELETE', clientId: client.id })} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">🗑️</button>
                       </td>
                     </tr>
-                  ))
+                  );
+                })
                 ) : (
                   <tr>
                     <td colSpan="6" className="px-6 py-12 text-center text-slate-500">
@@ -1026,8 +1198,7 @@ const handleFileUpload = (e) => {
       </div>
 
       {showFormModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-7xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+<div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">          <div className="w-full max-w-7xl rounded-2xl bg-white p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
               <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Client Record' : 'Register LPOG Client'}</h3>
               <button onClick={() => setShowFormModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-xl">&times;</button>
@@ -1039,264 +1210,285 @@ const handleFileUpload = (e) => {
               </div>
             )}
 
-<form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <form onSubmit={handleFormSubmit} className="flex flex-col lg:flex-row gap-6">
                
-               {/* COLUMN 1: Client Details */}
-               <div className="space-y-4">
-                <h4 className="font-bold text-slate-800 border-b pb-2">Client Details</h4>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Company Name *</label>
-                  <input required type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.company_name} onChange={(e) => setFormData({...formData, company_name: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Contact Person 1</label>
-                  <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.contact_person_1} onChange={(e) => setFormData({...formData, contact_person_1: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
-                    Contact Person 2 <span className="text-slate-400 font-normal ml-1">(Optional)</span>
-                  </label>
-                  <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.contact_person_2} onChange={(e) => setFormData({...formData, contact_person_2: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Email Address 1</label>
-                  <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.email_1} onChange={(e) => setFormData({...formData, email_1: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
-                    Email Address 2 <span className="text-slate-400 font-normal ml-1">(Optional)</span>
-                  </label>
-                  <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.email_2} onChange={(e) => setFormData({...formData, email_2: e.target.value})} />
-                </div>
-              </div>
+               {/* --- LEFT SIDE: MAIN FORM DATA (Approx 65% width) --- */}
+               <div className="flex-1 flex flex-col gap-6">
+                 
+                 {/* Top Row: Client & Contract Info */}
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
+                      <h4 className="font-bold text-slate-800 border-b pb-2 flex items-center gap-2">👤 Client Details</h4>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-700">Company Name *</label>
+                        <input required type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-[#d2f34c] outline-none transition-all" value={formData.company_name} onChange={(e) => setFormData({...formData, company_name: e.target.value})} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Contact 1</label>
+                          <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.contact_person_1} onChange={(e) => setFormData({...formData, contact_person_1: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Contact 2</label>
+                          <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.contact_person_2} onChange={(e) => setFormData({...formData, contact_person_2: e.target.value})} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Email 1</label>
+                          <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.email_1} onChange={(e) => setFormData({...formData, email_1: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Email 2</label>
+                          <input type="email" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.email_2} onChange={(e) => setFormData({...formData, email_2: e.target.value})} />
+                        </div>
+                      </div>
+                    </div>
 
-              {/* COLUMN 2: Contract Info */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-slate-800 border-b pb-2">Contract Info</h4>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Date Started *</label>
-                  <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.date_started} onChange={(e) => setFormData({...formData, date_started: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">End Date *</label>
-                  <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.end_date} onChange={(e) => setFormData({...formData, end_date: e.target.value})} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700 flex justify-between">
-                    Calculated Duration <span className="text-blue-500 font-normal">Auto-filled</span>
-                  </label>
-                  <input type="text" readOnly placeholder="Select dates above..." className="w-full rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed" value={formData.duration} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Remarks / Notes</label>
-                  <textarea rows="4" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})}></textarea>
-                </div>
-              </div>
+                    <div className="space-y-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
+                      <h4 className="font-bold text-slate-800 border-b pb-2 flex items-center gap-2">📅 Contract Info</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Date Started *</label>
+                          <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.date_started} onChange={(e) => setFormData({...formData, date_started: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">End Date *</label>
+                          <input required type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.end_date} onChange={(e) => setFormData({...formData, end_date: e.target.value})} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-700 flex justify-between">Calculated Duration <span className="text-blue-500 font-normal">Auto-filled</span></label>
+                        <input type="text" readOnly placeholder="Select dates above..." className="w-full rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed" value={formData.duration} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-700">Remarks / Notes</label>
+                        <textarea rows="2" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none" value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})}></textarea>
+                      </div>
+                    </div>
+                 </div>
 
-              {/* COLUMN 3: Billing & Status */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-slate-800 border-b pb-2">Billing & Status</h4>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Service Type *</label>
-                  <select 
-                    required 
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
-                    value={formData.package_tier} 
-                    onChange={(e) => {
-                      const selected = e.target.value;
-                      let autoRate = ''; 
-                      
-                      // LPOG DEFAULT RATES
-                      if (selected === 'Virtual Office Package') autoRate = 4500; 
-                      else if (selected === 'Use of Address') autoRate = 1650; // <-- NEW FIXED RATE
-                      
-                      setFormData({
-                          ...formData, package_tier: selected, rate_per_month: autoRate,
-                          custom_package_name: selected === 'Custom' ? formData.custom_package_name : '' 
-                      });
-                    }}
-                  >
-                    <option value="" disabled>-- Select Service --</option>
-                    <option value="Virtual Office Package">Virtual Office (₱4,500/mo)</option>
-                    <option value="Use of Address">Use of Address (₱1,650/mo)</option>
-                    <option value="Custom">Custom Service (Staff to encode)</option>
-                  </select>
-                </div>
+                 {/* Bottom Row: Billing & Status */}
+                 <div className="space-y-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
+                    <h4 className="font-bold text-slate-800 border-b pb-2 flex items-center gap-2">💳 Billing & Status</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Service Type *</label>
+                          <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.package_tier} 
+                            onChange={(e) => {
+                              const selected = e.target.value;
+                              let autoRate = ''; 
+                              // NOTE: Ensure these match LPC or LPOG pricing depending on the file!
+                              if (selected === 'Virtual Office Package') autoRate = 4500; 
+                              else if (selected === 'Use of Address') autoRate = 1650;
+                              setFormData({ ...formData, package_tier: selected, rate_per_month: autoRate, custom_package_name: selected === 'Custom' ? formData.custom_package_name : '' });
+                            }}
+                          >
+                            <option value="" disabled>-- Select Service --</option>
+                            <option value="Virtual Office Package">Virtual Office Package</option>
+                            <option value="Use of Address">Use of Address</option>
+                            <option value="Custom">Custom Service (Staff to encode)</option>
+                          </select>
+                        </div>
+                        {formData.package_tier === 'Custom' && (
+                          <div className="animate-fade-in">
+                            <label className="mb-1 block text-xs font-semibold text-blue-700">Specify Custom Service *</label>
+                            <input required type="text" placeholder="e.g. Virtual Office + 5 Days Desk" className="w-full rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm" value={formData.custom_package_name} onChange={(e) => setFormData({...formData, custom_package_name: e.target.value})} />
+                          </div>
+                        )}
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Agreed Rate (₱) *</label>
+                          <input required type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.rate_per_month} onChange={(e) => setFormData({...formData, rate_per_month: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Terms *</label>
+                          <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.payment_terms} onChange={(e) => setFormData({...formData, payment_terms: e.target.value})}>
+                            <option value="" disabled>-- Select Term --</option>
+                            <option value="Monthly">Monthly</option>
+                            <option value="Quarterly">Quarterly</option>
+                            <option value="Semi-Annual">Semi-Annual</option>
+                            <option value="Annually">Annually (Full Payment)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-slate-700">Current Status *</label>
+                          <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.contract_status} onChange={(e) => setFormData({...formData, contract_status: e.target.value})}>
+                            <option value="Active">Active</option>
+                            <option value="Pending Renewal">Pending Renewal</option>
+                            <option value="Expired">Expired</option>
+                            <option value="Terminated">Terminated</option>
+                          </select>
+                        </div>
+                    </div>
+                 </div>
 
-                {formData.package_tier === 'Custom' && (
-                  <div className="animate-fade-in">
-                    <label className="mb-1 block text-xs font-semibold text-blue-700">Specify Custom Service *</label>
-                    <input 
-                      required type="text" placeholder="e.g. Virtual Office + 5 Days Desk"
-                      className="w-full rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm"
-                      value={formData.custom_package_name} onChange={(e) => setFormData({...formData, custom_package_name: e.target.value})} 
-                    />
-                  </div>
-                )}
+                 {/* Action Buttons mapped to Left Column bottom */}
+                 <div className="flex justify-end gap-3 pt-4">
+                    <button type="button" onClick={() => setShowFormModal(false)} className="rounded-lg px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" className="rounded-lg bg-[#d2f34c] px-8 py-2.5 font-bold text-slate-900 hover:bg-[#b8d839] transition-colors shadow-sm">
+                      {editingId ? 'Update Client' : 'Save Client'}
+                    </button>
+                 </div>
+               </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Agreed Rate (₱) *</label>
-                  <input required type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.rate_per_month} onChange={(e) => setFormData({...formData, rate_per_month: e.target.value})} />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Current Status *</label>
-                  <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.contract_status} onChange={(e) => setFormData({...formData, contract_status: e.target.value})}>
-                    <option value="Active">Active</option>
-                    <option value="Pending Renewal">Pending Renewal</option>
-                    <option value="Expired">Expired</option>
-                    <option value="Terminated">Terminated</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Terms *</label>
-                  <select required className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white" value={formData.payment_terms} onChange={(e) => setFormData({...formData, payment_terms: e.target.value})}>
-                    <option value="" disabled>-- Select Term --</option>
-                    <option value="Monthly">Monthly</option>
-                    <option value="Quarterly">Quarterly</option>
-                    <option value="Semi-Annual">Semi-Annual</option>
-                    <option value="Annually">Annually (Full Payment)</option>
-                  </select>
-                </div>
-
-                {/* NEW: Automation Controls */}
-                <div className="pt-4 mt-2 border-t border-slate-200 space-y-3">
-                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">System Automation</p>
-                   
-                   {/* Kill Switch Toggle */}
-                   <label className="flex items-start gap-3 cursor-pointer group">
-                     <div className="relative flex items-center justify-center shrink-0 mt-0.5">
-                       <input 
-                         type="checkbox" 
-                         className="peer sr-only" 
-                         checked={formData.auto_email_enabled}
-                         onChange={(e) => setFormData({...formData, auto_email_enabled: e.target.checked})}
-                       />
-                       <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#b8d839]"></div>
-                     </div>
-                     <div>
-                       <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Enable Automated Emails</p>
-                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">If unchecked, this client will NOT receive renewal or termination warnings.</p>
-                     </div>
-                   </label>
-
-                   {/* Document Tracker Checkbox */}
-                   <label className="flex items-start gap-3 cursor-pointer group pt-2">
-                     <div className="relative flex items-center justify-center shrink-0 mt-0.5">
-                       <input 
-                         type="checkbox" 
-                         className="peer sr-only"
-                         checked={formData.documents_submitted}
-                         onChange={(e) => setFormData({...formData, documents_submitted: e.target.checked})}
-                       />
-                       <div className="w-5 h-5 bg-white border-2 border-slate-300 rounded flex items-center justify-center peer-checked:bg-blue-500 peer-checked:border-blue-500 transition-colors">
-                         <svg className={`w-3 h-3 text-white ${formData.documents_submitted ? 'opacity-100' : 'opacity-0'} transition-opacity`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+               {/* --- RIGHT SIDE: AUTOMATION & OUTPUTS (Approx 35% width) --- */}
+               <div className="w-full lg:w-[360px] xl:w-[400px] shrink-0 flex flex-col gap-6">
+                 
+                {/* Expected Billing Schedule Block */}
+                 <div className="min-h-[220px] h-auto">
+                    {paymentSchedule ? (
+                       <div className="rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col h-full overflow-hidden">
+                          <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
+                             <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Billing Preview</h5>
+                          </div>
+                          <div className="p-5 flex-1 flex flex-col justify-center">
+                             <span className="text-3xl font-black text-slate-800">{formatCurrency(paymentSchedule.installmentAmount)}</span>
+                             <span className="text-sm text-slate-500 font-medium">per {paymentSchedule.installmentLabel}</span>
+                             
+                             {/* --- THE NEW PRORATION BREAKDOWN --- */}
+                             {paymentSchedule.isProrated && (
+                               <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between gap-4 animate-fade-in">
+                                 <div>
+                                   <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Initial Prorated</span>
+                                   <span className="text-sm font-bold text-blue-600">{formatCurrency(paymentSchedule.firstMonthAmount)}</span>
+                                 </div>
+                                 <div className="text-right">
+                                   <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Final Prorated</span>
+                                   <span className="text-sm font-bold text-blue-600">{formatCurrency(paymentSchedule.finalMonthAmount)}</span>
+                                 </div>
+                               </div>
+                             )}
+                             
+                          </div>
+                          <div className="bg-slate-800 text-white px-5 py-3 mt-auto shrink-0">
+                             <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-300">Total Value:</span>
+                                <span className="font-bold text-[#d2f34c]">{formatCurrency(paymentSchedule.totalContractValue)}</span>
+                             </div>
+                          </div>
                        </div>
-                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">Company Documents Submitted</p>
-                      <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
-                        <strong className="text-emerald-600">Anti-Spam Lock:</strong> Check this once documents are surrendered. This instantly stops all automated document requests and disables the manual email button.
-                      </p>
-                    </div>
-                   </label>
-                </div>
-
-              </div>
-
-                {paymentSchedule ? (
-                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm animate-fade-in flex flex-col h-[calc(100%-2rem)] overflow-hidden">
-                    
-                    {/* Header */}
-                    <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
-                      <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Expected Billing Schedule</h5>
-                    </div>
-
-                    {/* Body */}
-                    <div className="p-5 flex-1 flex flex-col gap-4 text-sm">
-                      {paymentSchedule.terms === 'Annually' ? (
-                        <div className="flex flex-col">
-                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">One-Time Upfront Payment</span>
-                          <span className="text-3xl font-black text-slate-800 tracking-tight">{formatCurrency(paymentSchedule.totalContractValue)}</span>
-                          {paymentSchedule.isProrated && (
-                            <p className="text-[10px] text-slate-400 mt-2 font-medium">Includes all standard months and prorated days.</p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {paymentSchedule.isProrated ? (
-                            <>
-                              <div className="flex justify-between items-end border-b border-slate-50 pb-3">
-                                <span className="text-slate-600 font-medium">First {paymentSchedule.installmentLabel} <span className="text-[10px] text-slate-400 block">(Prorated)</span></span>
-                                <span className="font-bold text-slate-800">{formatCurrency(paymentSchedule.firstInvoiceAmount)}</span>
-                              </div>
-                              
-                              {/* Dynamically hides if there are 0 standard invoices (e.g., 12-mo Semi-Annual) */}
-                              {paymentSchedule.standardInvoiceCount > 0 && (
-                                <div className="flex justify-between items-end border-b border-slate-50 pb-3">
-                                  <span className="text-slate-600 font-medium">
-                                    Standard {paymentSchedule.installmentLabel} {paymentSchedule.standardInvoiceCount > 1 ? `(${paymentSchedule.standardInvoiceCount}x)` : ''}
-                                  </span>
-                                  <span className="font-bold text-slate-800">
-                                    {formatCurrency(paymentSchedule.installmentAmount)}{paymentSchedule.terms === 'Monthly' ? '/mo' : ''}
-                                  </span>
-                                </div>
-                              )}
-
-                              {/* Only shows a Final invoice if there is more than 1 billing cycle */}
-                              {paymentSchedule.totalInvoices > 1 && (
-                                <div className="flex justify-between items-end pb-2">
-                                  <span className="text-slate-600 font-medium">Final {paymentSchedule.installmentLabel} <span className="text-[10px] text-slate-400 block">(Prorated)</span></span>
-                                  <span className="font-bold text-slate-800">{formatCurrency(paymentSchedule.finalInvoiceAmount)}</span>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="flex justify-between items-center pb-2">
-                              <span className="text-slate-600 font-medium">
-                                Standard {paymentSchedule.installmentLabel} {paymentSchedule.standardInvoiceCount > 1 ? `(${paymentSchedule.standardInvoiceCount}x)` : ''}
-                              </span>
-                              <span className="font-bold text-slate-800">
-                                {formatCurrency(paymentSchedule.installmentAmount)}{paymentSchedule.terms === 'Monthly' ? '/mo' : ''}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer - Dynamic based on Terms */}
-                    {paymentSchedule.terms !== 'Annually' ? (
-                      <div className="bg-slate-800 text-white px-5 py-4 mt-auto">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">Total Contract Value</span>
-                          <span className="text-lg font-black text-[#d2f34c]">{formatCurrency(paymentSchedule.totalContractValue)}</span>
-                        </div>
-                      </div>
                     ) : (
-                       <div className="bg-slate-800 text-white px-5 py-4 mt-auto border-t border-slate-700">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">Status</span>
-                          <span className="text-sm font-bold text-[#d2f34c] uppercase tracking-wider">Fully Paid / Upfront</span>
-                        </div>
-                      </div>
+                       <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 h-full flex flex-col items-center justify-center text-center">
+                          <span className="text-2xl mb-2">🧾</span>
+                          <p className="text-xs text-slate-500">Enter dates, rate, and terms to generate schedule.</p>
+                       </div>
                     )}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 h-[calc(100%-2rem)] flex flex-col items-center justify-center text-center">
-                    <svg className="w-8 h-8 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    <p className="text-xs text-slate-500 font-medium">Enter Start Date, End Date, Rate, and Terms to view the billing schedule.</p>
-                  </div>
-                )}
+                 </div>
 
-              {/* ACTION BUTTONS: Spanning all 4 columns */}
-              <div className="col-span-1 md:col-span-4 mt-2 flex justify-end gap-3 border-t pt-5">
-                <button type="button" onClick={() => setShowFormModal(false)} className="rounded-lg px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
-                <button type="submit" className="rounded-lg bg-[#d2f34c] px-8 py-2.5 font-bold text-slate-900 hover:bg-[#b8d839] transition-colors shadow-sm">
-                  {editingId ? 'Update Client' : 'Save Client'}
-                </button>
-              </div>
+                 {/* Powerful Automation Engine Panel */}
+                 <div className="rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden flex flex-col flex-1">
+                    <div className="bg-blue-50 border-b border-blue-100 px-5 py-3 flex justify-between items-center">
+                       <h5 className="text-[11px] font-black text-blue-800 uppercase tracking-widest flex items-center gap-1.5"> Automation Engine</h5>
+                       {/* DYNAMIC DATE DISPLAY */}
+                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border ${getNextAutomatedEmail().color} border-slate-200 shadow-sm`}>
+                         {getNextAutomatedEmail().text}
+                       </span>
+                    </div>
+
+                    <div className="p-5 flex flex-col gap-5">
+                       {/* Toggles */}
+                       <div className="space-y-4">
+                         <label className="flex items-start gap-3 cursor-pointer group">
+                           <input type="checkbox" className="peer sr-only" checked={formData.auto_email_enabled} onChange={(e) => setFormData({...formData, auto_email_enabled: e.target.checked})} />
+                           <div className="w-10 h-5 mt-0.5 bg-slate-300 rounded-full peer-checked:bg-[#b8d839] relative after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                           <div>
+                             <p className="text-sm font-bold text-slate-800">Enable Automation</p>
+                             <p className="text-[10px] text-slate-500 leading-tight">Master switch for renewal & termination emails.</p>
+                           </div>
+                         </label>
+
+                          <label className="flex items-start gap-3 cursor-pointer group">
+                           <input type="checkbox" className="peer sr-only" checked={formData.documents_submitted} onChange={(e) => setFormData({...formData, documents_submitted: e.target.checked})} />
+                           <div className="w-5 h-5 mt-0.5 bg-white border-2 border-slate-300 rounded flex items-center justify-center peer-checked:bg-blue-500 peer-checked:border-blue-500 transition-colors shrink-0">
+                             <svg className={`w-3 h-3 text-white ${formData.documents_submitted ? 'opacity-100' : 'opacity-0'} transition-opacity`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                           </div>
+                           <div>
+                             <p className="text-sm font-bold text-slate-800">Documents Surrendered</p>
+                             <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                               <span className="font-semibold text-blue-600">90-Day Rule:</span> An automated request email will be sent 90 days after the contract start date. Check this box to disable it.
+                             </p>
+                           </div>
+                         </label>
+                       </div>
+
+                       {/* Multiple File Uploader */}
+                       <div className="pt-4 border-t border-slate-100">
+                         <div className="flex justify-between items-end mb-2">
+                           <div>
+                             <p className="text-sm font-bold text-slate-800">Custom Attachments</p>
+                             <p className="text-[10px] text-slate-500 leading-tight">Files will attach to automated emails.</p>
+                           </div>
+                           
+                           {/* Custom Upload Button */}
+                           <label className="cursor-pointer bg-slate-800 text-[#d2f34c] hover:bg-slate-700 transition-colors px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm">
+                             + Add Files
+                             <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx" className="hidden" onChange={handleCustomAttachmentChange} />
+                           </label>
+                         </div>
+
+{/* Professional File Routing Display */}
+                         {formData.custom_attachments && formData.custom_attachments.length > 0 ? (
+                           <div className="space-y-3 max-h-[200px] overflow-y-auto custom-scrollbar pr-1 mt-4">
+                             {formData.custom_attachments.map((file, index) => {
+                               const activeTriggers = file.triggers || []; // Fallback for your old test files
+                               
+                               return (
+                                 <div key={index} className="flex flex-col bg-white border border-slate-200 rounded-xl p-3 shadow-sm group hover:border-blue-300 transition-colors">
+                                   
+                                   {/* File Header */}
+                                   <div className="flex items-center justify-between mb-2">
+                                     <div className="flex items-center gap-2 min-w-0">
+                                       <span className="text-lg shrink-0">📄</span>
+                                       <p className="text-xs font-bold text-slate-800 truncate" title={file.name}>{file.name}</p>
+                                     </div>
+                                     <button type="button" onClick={() => removeCustomAttachment(index)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors shrink-0" title="Remove file">
+                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                     </button>
+                                   </div>
+
+                                   {/* Routing Toggles (The Magic) */}
+                                   <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-50">
+                                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Attach this file to:</span>
+                                     <div className="flex flex-wrap gap-1.5">
+                                       {/* Renewal Pill */}
+                                       <button 
+                                         type="button" onClick={() => toggleAttachmentTrigger(index, 'subscription_renewal')}
+                                         className={`px-2 py-1 text-[10px] font-bold rounded-md border transition-all ${activeTriggers.includes('subscription_renewal') ? 'bg-amber-50 border-amber-200 text-amber-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'}`}
+                                       >
+                                         {activeTriggers.includes('subscription_renewal') ? '✅ Renewal' : 'Renewal'}
+                                       </button>
+                                       
+                                       {/* Termination Pill */}
+                                       <button 
+                                         type="button" onClick={() => toggleAttachmentTrigger(index, 'notice_of_termination')}
+                                         className={`px-2 py-1 text-[10px] font-bold rounded-md border transition-all ${activeTriggers.includes('notice_of_termination') ? 'bg-red-50 border-red-200 text-red-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'}`}
+                                       >
+                                         {activeTriggers.includes('notice_of_termination') ? '✅ Termination' : 'Termination'}
+                                       </button>
+
+                                       {/* Doc Request Pill */}
+                                       <button 
+                                         type="button" onClick={() => toggleAttachmentTrigger(index, 'document_request')}
+                                         className={`px-2 py-1 text-[10px] font-bold rounded-md border transition-all ${activeTriggers.includes('document_request') ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'}`}
+                                       >
+                                         {activeTriggers.includes('document_request') ? '✅ Doc Request' : 'Doc Request'}
+                                       </button>
+                                     </div>
+                                   </div>
+
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         ) : (
+                           <div className="mt-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg p-5 text-center transition-all hover:bg-slate-100">
+                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">No routing files attached</p>
+                           </div>
+                         )}
+                       </div>
+                    </div>
+                 </div>
+               </div>
             </form>
           </div>
         </div>

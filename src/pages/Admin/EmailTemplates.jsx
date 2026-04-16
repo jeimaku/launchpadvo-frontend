@@ -38,6 +38,9 @@ export default function EmailTemplates() {
   // NEW: Search State
   const [searchTerm, setSearchTerm] = useState('');
 
+  // NEW: Sample client for Live Preview
+  const [previewClient, setPreviewClient] = useState(null);
+
   const [formData, setFormData] = useState({
     id: null,
     name: '',
@@ -130,6 +133,23 @@ export default function EmailTemplates() {
   useEffect(() => {
     fetchTemplates();
     fetchEmailCounts(); 
+    
+    // --- NEW: Fetch one active client to use for the live preview ---
+    const fetchPreviewClient = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/virtual-offices?branch=LPC`, {
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        });
+        if (res.ok) {
+          const clients = await res.json();
+          const activeClient = clients.find(c => c.contract_status === 'Active');
+          if (activeClient) setPreviewClient(activeClient);
+        }
+      } catch(e) { console.error(e); }
+    };
+    fetchPreviewClient();
+
     const socket = io(API_URL);
     socket.on('incoming_email', () => fetchEmailCounts());
     return () => socket.disconnect();
@@ -231,6 +251,24 @@ export default function EmailTemplates() {
     e.target.value = null; 
   };
 
+  // --- NEW: Click-to-Insert Smart Tag ---
+  const insertSmartTag = (tagText) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      
+      // Restore cursor position if it exists
+      if (savedRangeRef.current) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedRangeRef.current);
+      }
+      
+      // Insert the text at the cursor
+      document.execCommand('insertText', false, tagText);
+      handleEditorInput();
+    }
+  };
+
   const handleEditorInput = () => {
     if (editorRef.current) {
       setFormData(prev => ({ ...prev, body: editorRef.current.innerHTML, isHtml: true }));
@@ -328,11 +366,39 @@ export default function EmailTemplates() {
     t.subject.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // --- UPGRADED: Dynamic Live Preview Renderer ---
   const renderSafePreviewBody = (htmlContent) => {
     if (!htmlContent) return '';
-    return htmlContent.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
+    
+    // 1. Fix the Logo
+    let content = htmlContent.replace(/src="([^"]*(launchpad-logo|launchpad-logo-dark|cid:launchpadLogo)[^"]*)"/gi, `src="${launchpadLogo}"`);
+
+    // 2. Inject Real Data if we have a preview client
+    if (previewClient) {
+      const exactExpiryDate = previewClient.end_date 
+        ? new Date(previewClient.end_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) 
+        : 'May 8, 2026';
+        
+      const daysCalc = previewClient.end_date 
+        ? Math.max(0, Math.ceil((new Date(previewClient.end_date) - new Date()) / (1000*60*60*24))) 
+        : 7;
+
+      content = content
+        .replace(/\[Client Name\]/gi, previewClient.contact_person_1 || 'Client')
+        .replace(/\[Company Name\]/gi, previewClient.company_name || 'Company')
+        .replace(/\[Exact Expiry Date\]/gi, exactExpiryDate)
+        .replace(/\[X\]/gi, daysCalc);
+    }
+    return content;
   };
 
+  const renderDynamicSubject = (subject) => {
+    if (!subject) return <span className="text-slate-300 italic font-medium">Subject line will appear here...</span>;
+    if (!previewClient) return subject;
+    return subject
+      .replace(/\[Client Name\]/gi, previewClient.contact_person_1 || 'Client')
+      .replace(/\[Company Name\]/gi, previewClient.company_name || 'Company');
+  };
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
       
@@ -433,82 +499,96 @@ export default function EmailTemplates() {
             {/* VIEW: LIBRARY                              */}
             {/* ========================================== */}
             {currentView === 'library' && (
-              <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
+              <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-50/30">
                 {filteredTemplates.length === 0 ? (
-                  <div className="text-center text-slate-400 font-medium py-16 flex flex-col items-center justify-center">
-                    <svg className="w-16 h-16 text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                    <p className="text-xl text-slate-500 font-bold mb-1">
+                  <div className="text-center text-slate-500 font-medium py-16 flex flex-col items-center justify-center">
+                    <svg className="w-12 h-12 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <p className="text-base font-semibold mb-1">
                       {searchTerm ? "No templates match your search." : "No templates found."}
                     </p>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-4">
-                    {filteredTemplates.map(t => (
-                      <div key={t.id} className={`bg-white border ${t.isSystem ? 'border-[#d2f34c]/60 bg-[#d2f34c]/5' : 'border-slate-200 hover:border-slate-300 hover:shadow-md'} rounded-2xl p-6 shadow-sm transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6 group`}>
-                        
-                        <div className="flex items-start gap-5 flex-1 min-w-0 w-full">
-                          <div className={`h-14 w-14 shrink-0 rounded-xl flex items-center justify-center text-2xl shadow-sm ${t.templateType === 'automated' ? 'bg-purple-100 text-purple-600 border border-purple-200' : 'bg-blue-50 text-blue-600 border border-blue-100'}`}>
-                            {t.isSystem ? (
-                              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
-                            ) : t.templateType === 'automated' ? (
-                              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                            ) : (
-                              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            )}
-                          </div>
+                  <div className="flex flex-col gap-3 max-w-6xl mx-auto">
+                    {filteredTemplates.map(t => {
+                      // --- DYNAMIC DISTINCTION STYLING ---
+                      let accentBorder = 'border-l-blue-500';
+                      let badgeStyle = 'text-blue-700 bg-blue-50 border-blue-200';
+                      let iconColor = 'text-blue-600';
+                      
+                      if (t.templateType === 'automated') {
+                        if (t.triggerEvent === 'notice_of_termination') {
+                          accentBorder = 'border-l-rose-500';
+                          badgeStyle = 'text-rose-700 bg-rose-50 border-rose-200';
+                          iconColor = 'text-rose-500';
+                        } else if (t.triggerEvent === 'document_request') {
+                          accentBorder = 'border-l-amber-500';
+                          badgeStyle = 'text-amber-700 bg-amber-50 border-amber-200';
+                          iconColor = 'text-amber-500';
+                        } else {
+                          accentBorder = 'border-l-purple-500';
+                          badgeStyle = 'text-purple-700 bg-purple-50 border-purple-200';
+                          iconColor = 'text-purple-500';
+                        }
+                      }
+
+                      return (
+                        <div key={t.id} className={`bg-white border border-slate-200 border-l-4 ${accentBorder} hover:shadow-md rounded-xl p-4 sm:px-6 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group`}>
                           
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center gap-3 mb-1">
-                              <h5 className="font-bold text-slate-900 text-xl truncate">{t.name}</h5>
-                                {t.templateType === 'automated' ? (
-                                 <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${
-                                     t.triggerEvent === 'notice_of_termination' ? 'bg-rose-100 text-rose-700 border-rose-200' :
-                                     t.triggerEvent === 'document_request' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                                     'bg-purple-100 text-purple-700 border-purple-200'
-                                 }`}>
-                                   {t.triggerEvent === 'notice_of_termination' ? 'Termination Rule' :
-                                    t.triggerEvent === 'document_request' ? 'Document Rule' :
-                                    'Renewal Rule'}
-                                 </span>
-                                ) : (
-                                 <span className="shrink-0 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border border-blue-200">
-                                   Manual Use
-                                 </span>
+                          <div className="flex items-center gap-4 flex-1 min-w-0 w-full">
+                            {/* Minimalist Colored Icon */}
+                            <div className={`h-10 w-10 shrink-0 rounded-lg flex items-center justify-center border border-slate-100 bg-slate-50 shadow-sm ${iconColor}`}>
+                              {t.isSystem ? (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                              ) : t.templateType === 'automated' ? (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                              ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                               )}
                             </div>
-                            <p className="text-sm text-slate-600 font-medium truncate w-full mt-1">
-                              <span className="font-bold text-slate-800">Subject:</span> {t.subject}
-                              <span className="text-slate-300 font-normal mx-2">|</span>
-                              <span className="text-slate-500 italic">{getEmailSnippet(t.body)}</span>
-                            </p>
+                            
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <div className="flex items-center gap-3 mb-0.5">
+                                <h5 className="font-bold text-slate-800 text-base truncate">{t.name}</h5>
+                                <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${badgeStyle}`}>
+                                  {t.templateType === 'automated' 
+                                    ? (t.triggerEvent === 'notice_of_termination' ? 'Termination Rule' : t.triggerEvent === 'document_request' ? 'Document Rule' : 'Renewal Rule') 
+                                    : 'Manual Use'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 truncate w-full">
+                                <span className="font-semibold text-slate-700">Subject:</span> {t.subject}
+                                <span className="text-slate-300 font-normal mx-2">|</span>
+                                <span>{getEmailSnippet(t.body)}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4 shrink-0 w-full md:w-auto justify-end mt-2 md:mt-0">
+                            <span className="text-xs font-semibold px-2 py-1 rounded flex items-center gap-1.5 text-slate-500">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                              {t.attachments?.length || 0} Files
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => handlePreviewClick(t)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm">
+                                Preview
+                              </button>
+                              {!t.isSystem && (
+                                <>
+                                  <button onClick={() => handleEditClick(t)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm">
+                                    Edit
+                                  </button>
+                                  
+                                  <button onClick={() => confirmDelete(t.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors" title="Delete Template">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-4 shrink-0 w-full md:w-auto justify-end border-t md:border-t-0 pt-4 md:pt-0 border-slate-100">
-                          <span className={`text-xs font-bold px-3 py-1.5 rounded-lg border flex items-center gap-2 ${t.attachments?.length > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                            {t.attachments?.length || 0} Files
-                          </span>
-
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => handlePreviewClick(t)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm">
-                              Preview
-                            </button>
-                            {!t.isSystem && (
-                              <>
-                                <button onClick={() => handleEditClick(t)} className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm">
-                                  Edit
-                                </button>
-                                
-                                <button onClick={() => confirmDelete(t.id)} className="bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 p-2 rounded-lg transition-all shadow-sm text-slate-400 hover:text-red-500" title="Delete Template">
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -598,30 +678,35 @@ export default function EmailTemplates() {
                           </span>
                         </div>
 
-                        {/* --- SMART TAGS INSTRUCTIONS UI --- */}
-                        <div className="mb-5 bg-blue-50/50 border border-blue-100 rounded-xl p-4 shadow-sm">
-                          <h5 className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2 flex items-center gap-2">
-                            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            Supported Smart Tags
-                          </h5>
-                          <p className="text-xs text-blue-600/80 mb-3 font-medium leading-relaxed">Type these exact tags into the editor below. The system will automatically replace them with the client's actual data when the email is sent.</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div className="flex items-center gap-2">
-                              <code className="text-[10px] font-black text-slate-800 bg-white px-2 py-1 rounded shadow-sm border border-blue-200/60">[Client Name]</code>
-                              <span className="text-[11px] font-bold text-blue-700">Client's Contact Person</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <code className="text-[10px] font-black text-slate-800 bg-white px-2 py-1 rounded shadow-sm border border-blue-200/60">[Company Name]</code>
-                              <span className="text-[11px] font-bold text-blue-700">Client's Company</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <code className="text-[10px] font-black text-slate-800 bg-white px-2 py-1 rounded shadow-sm border border-blue-200/60">[Exact Expiry Date]</code>
-                              <span className="text-[11px] font-bold text-blue-700">e.g., May 8, 2026</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <code className="text-[10px] font-black text-slate-800 bg-white px-2 py-1 rounded shadow-sm border border-blue-200/60">[X]</code>
-                              <span className="text-[11px] font-bold text-blue-700">Days remaining (Renewals only)</span>
-                            </div>
+                        {/* --- INTERACTIVE SMART TAGS UI --- */}
+                        <div className="mb-5 bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                          <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
+                             <h5 className="text-[11px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                               <span className="text-blue-500 text-sm"></span> Interactive Smart Tags
+                             </h5>
+                             <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded">Click to insert at cursor</span>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <button type="button" onClick={() => insertSmartTag('[Client Name]')} className="flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg transition-all group text-left shadow-sm hover:shadow">
+                              <code className="text-xs font-black text-slate-700 group-hover:text-blue-700 transition-colors">[Client Name]</code>
+                              <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-500 transition-colors">Contact Person</span>
+                            </button>
+                            
+                            <button type="button" onClick={() => insertSmartTag('[Company Name]')} className="flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg transition-all group text-left shadow-sm hover:shadow">
+                              <code className="text-xs font-black text-slate-700 group-hover:text-blue-700 transition-colors">[Company Name]</code>
+                              <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-500 transition-colors">Client's Company</span>
+                            </button>
+
+                            <button type="button" onClick={() => insertSmartTag('[Exact Expiry Date]')} className="flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg transition-all group text-left shadow-sm hover:shadow">
+                              <code className="text-xs font-black text-slate-700 group-hover:text-blue-700 transition-colors">[Exact Expiry Date]</code>
+                              <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-500 transition-colors">e.g., May 8, 2026</span>
+                            </button>
+
+                            <button type="button" onClick={() => insertSmartTag('[X]')} className="flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg transition-all group text-left shadow-sm hover:shadow">
+                              <code className="text-xs font-black text-slate-700 group-hover:text-blue-700 transition-colors">[X]</code>
+                              <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-500 transition-colors">Days Remaining</span>
+                            </button>
                           </div>
                         </div>
                           
@@ -683,18 +768,26 @@ export default function EmailTemplates() {
                       <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                       Live Client Preview
                     </h4>
+                    
+                    {/* NEW: Display the mock client being used */}
+                    {previewClient && (
+                      <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-300/50 shadow-sm text-[10px] font-bold text-slate-500 flex items-center gap-2">
+                        Data Source: <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{previewClient.company_name}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col w-full max-w-3xl mx-auto transition-all">
                      
-                     {/* Fake Gmail Header */}
+                      {/* Fake Gmail Header */}
                      <div className="border-b border-slate-100 p-6 bg-white flex items-start gap-4">
                         <div className="h-12 w-12 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden p-2 shadow-inner">
                           <img src={launchpadLogo} alt="Logo" className="w-full h-full object-contain opacity-80" />
                         </div>
                         <div className="flex-1 pt-0.5 min-w-0">
+                           {/* UPGRADED: Dynamic Subject Line */}
                            <h2 className="text-xl font-bold text-slate-900 leading-tight truncate" title={formData.subject}>
-                             {formData.subject || <span className="text-slate-300 italic font-medium">Subject line will appear here...</span>}
+                             {renderDynamicSubject(formData.subject)}
                            </h2>
                            <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
                              <span className="font-bold text-slate-700">Launchpad Virtual Office</span>
@@ -703,17 +796,17 @@ export default function EmailTemplates() {
                         </div>
                      </div>
 
-                     {/* Fake Gmail Body */}
-                     <div className="p-8 text-sm text-slate-800 bg-white min-h-[400px]">
-                       {formData.body || formData.body.includes('<img') ? (
-                         <div className="prose max-w-none text-slate-700 w-full" dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(formData.body) }} />
-                       ) : (
-                         <div className="h-full flex flex-col items-center justify-center text-slate-300 italic text-sm mt-20 gap-3">
-                           <svg className="w-12 h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                           Start drafting your email on the left to see it here...
-                         </div>
-                       )}
+                     {/* --- MISSING BLOCK: THE ACTUAL EMAIL BODY PREVIEW --- */}
+                     <div className="text-base text-slate-800 bg-white p-8 min-h-[300px] flex justify-center border-b border-slate-100">
+                        {formData.isHtml ? (
+                          <div className="prose max-w-none text-slate-700 w-full flex flex-col items-center" dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(formData.body) }} />
+                        ) : (
+                          <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }} className="text-slate-700 leading-relaxed w-full">
+                            {formData.body}
+                          </div>
+                        )}
                      </div>
+                     {/* -------------------------------------------------- */}
 
                      {/* Fake Gmail Attachments */}
                      {(formData.existingAttachments.length > 0 || formData.newFiles.length > 0) && (

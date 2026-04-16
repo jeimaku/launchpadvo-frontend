@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* 1. Import Inter with full weight range and character sets */
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+/* 2. Configure Tailwind v4 Theme */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* 3. THE GLOBAL RESET: Forces Inter everywhere to fix the Peso glyph issue. */
+* {
+  font-family: "Inter", sans-serif !important;
+}
+
+body {
+  margin: 0;
+  background-color: #f8fafc;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Form elements must inherit the font to keep dropdowns and inputs consistent */
+input, button, select, textarea, optgroup {
+  font-family: inherit !important;
+}
+
+/* Maintain your global custom scrollbars */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }

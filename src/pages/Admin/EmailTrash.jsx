@@ -25,7 +25,7 @@ export default function EmailTrash() {
   // NEW: Search State
   const [searchTerm, setSearchTerm] = useState('');
 
-  const systemEmail = "lptest.renewal@gmail.com";
+  const [systemEmail, setSystemEmail] = useState("");
 
   const userRole = localStorage.getItem('userRole') || '';
   const canViewNotifications = ['admin', 'manager', 'staff'].includes(userRole.toLowerCase());
@@ -35,20 +35,25 @@ export default function EmailTrash() {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
-      const [logsResponse, inboxResponse] = await Promise.all([
+      // --- NEW: Fetch logs, inbox, AND the system email config all at once ---
+      const [logsResponse, inboxResponse, configResponse] = await Promise.all([
         fetch(`${API_URL}/api/emails/logs`, { headers }),
-        fetch(`${API_URL}/api/emails/inbox`, { headers })
+        fetch(`${API_URL}/api/emails/inbox`, { headers }),
+        fetch(`${API_URL}/api/emails/config`, { headers })
       ]);
 
-      if (logsResponse.ok && inboxResponse.ok) {
+      if (logsResponse.ok && inboxResponse.ok && configResponse.ok) {
         const logsData = await logsResponse.json();
         const inboxData = await inboxResponse.json();
+        const configData = await configResponse.json();
         
         setEmailCounts({
           inbox: inboxData.length,
           manual: logsData.filter(log => log.type === 'Manual').length,
           automated: logsData.filter(log => log.type === 'Automated').length
         });
+        
+        setSystemEmail(configData.systemEmail); // Save the dynamic email to state
       }
     } catch (error) {
       console.error('Error fetching email counts:', error);
@@ -166,6 +171,15 @@ export default function EmailTrash() {
     return new Date(dateString).toLocaleString('en-US', options);
   };
 
+  const formatShortDate = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   const getGravatarUrl = (email) => {
     if (email === systemEmail) return launchpadLogo;
     return `https://www.gravatar.com/avatar/${md5(email.trim().toLowerCase())}?s=128&d=mp`;
@@ -189,12 +203,13 @@ export default function EmailTrash() {
       `}</style>
 
       <Sidebar />
-      <main className="flex-1 p-8 relative flex flex-col h-full overflow-hidden">
+      <main className="flex-1 p-6 md:p-8 relative flex flex-col h-full overflow-hidden">
         
-        <div className="mb-6 shrink-0 flex justify-between items-start">
+        {/* Header Section */}
+        <div className="mb-6 shrink-0 flex justify-between items-end">
           <div>
-            <h1 className="text-4xl font-black text-slate-900">Email Center</h1>
-            <p className="text-lg text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Email Center</h1>
+            <p className="text-sm text-slate-500 mt-1 font-medium">Manage automated notifications and manual communications.</p>
           </div>
           <div className="flex items-center gap-4">
             {canViewNotifications && <NotificationBell />}
@@ -204,114 +219,128 @@ export default function EmailTrash() {
         <div className="flex gap-6 flex-1 min-h-0">
           <EmailSidebar onCompose={() => setShowComposeModal(true)} counts={emailCounts} />
 
-          <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col min-w-0 overflow-hidden">
             
-            {/* Header Area with Search */}
-            <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                <span className="text-3xl">🗑️</span> Recently Deleted
+            {/* Top Toolbar with Search */}
+            <div className="px-6 py-4 border-b border-slate-200 bg-white flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 shrink-0 z-10">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2.5">
+                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                Recently Deleted
               </h2>
 
-              {/* NEW: Search Input */}
-              <div className="relative w-full max-w-md ml-auto">
-                <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              <div className="relative w-full sm:w-80">
+                <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 <input 
                   type="text" 
                   placeholder="Search trash..." 
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                  className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white focus:bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
                 {searchTerm && (
-                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+            {/* Email List Area */}
+            <div className="flex-1 overflow-y-auto bg-white custom-scrollbar relative">
               {filteredTrash.length === 0 && !loading ? (
-                <div className="text-center text-slate-400 font-medium py-16 flex flex-col items-center justify-center">
-                  <svg className="w-16 h-16 text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                  <p className="text-xl text-slate-500 font-bold mb-1">
+                <div className="text-center text-slate-400 font-medium py-20 flex flex-col items-center justify-center h-full">
+                  <svg className="w-12 h-12 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <p className="text-base text-slate-600 font-semibold mb-1">
                     {searchTerm ? "No matching emails found in trash." : "No deleted emails found."}
                   </p>
                 </div>
               ) : (
-                filteredTrash.map((item) => (
-                  <div 
-                    key={`${item.source}-${item.id}`} 
-                    onClick={() => setSelectedEmail({ 
-                      ...item, 
-                      isIncoming: item.source === 'inbox',
-                      sent_at: item.created_at, 
-                      sender_email: item.sender, 
-                      sender_name: item.sender,
-                      recipient_email: item.recipient
-                    })} 
-                    className="flex items-start gap-6 p-6 border border-slate-100 rounded-3xl hover:bg-slate-50 hover:border-slate-300 hover:shadow-md transition-all duration-200 cursor-pointer group shadow-sm"
-                  >
-                    {item.source === 'logs' ? (
-                      <div className="h-14 w-14 shrink-0 rounded-full border border-slate-200 shadow-sm bg-white p-1 mt-1">
-                        <img src={getGravatarUrl(systemEmail)} onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(systemEmail, 'Launchpad'); }} alt="System" className="h-full w-full object-contain rounded-full" />
+                <div className="divide-y divide-slate-100">
+                  {filteredTrash.map((item) => (
+                    <div 
+                      key={`${item.source}-${item.id}`} 
+                      onClick={() => setSelectedEmail({ 
+                        ...item, 
+                        isIncoming: item.source === 'inbox',
+                        sent_at: item.created_at, 
+                        sender_email: item.sender, 
+                        sender_name: item.sender,
+                        recipient_email: item.recipient
+                      })} 
+                      className="group flex flex-col sm:flex-row sm:items-center px-4 py-3 sm:px-6 sm:py-3 hover:bg-slate-50 cursor-pointer transition-colors relative"
+                    >
+                      {/* Hover Actions (Slide in from right) */}
+                      <div className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 items-center gap-2 bg-slate-50 pl-4 py-2 transition-opacity duration-200 shadow-[-10px_0_10px_rgba(248,250,252,1)] z-10">
+                        <button 
+                          onClick={(e) => triggerRestore(item.id, item.source, e)} 
+                          className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-md hover:bg-emerald-50 transition-colors bg-white border border-slate-200 shadow-sm"
+                          title="Restore Email"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                        </button>
+                        <button 
+                          onClick={(e) => triggerPermanentDelete(item.id, item.source, e)} 
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50 transition-colors bg-white border border-slate-200 shadow-sm"
+                          title="Delete Permanently"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
                       </div>
-                    ) : (
-                      <img 
-                        src={getGravatarUrl(item.sender)} 
-                        onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(item.sender, item.sender); }}
-                        alt="Avatar" 
-                        className="h-14 w-14 rounded-full object-cover shadow-sm border border-slate-200 shrink-0 mt-1" 
-                      />
-                    )}
 
-                    <div className="flex flex-col flex-1 min-w-0">
-                       <div className="flex justify-between items-start mb-1">
-                        <h4 className="font-black text-slate-900 text-xl flex items-center gap-3 truncate">
-                          <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-lg border shrink-0 ${
-                            item.source === 'logs' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-blue-50 text-blue-600 border-blue-200'
-                          }`}>
+                      {/* Avatar Column */}
+                      <div className="flex items-center gap-3 w-full sm:w-56 md:w-64 shrink-0 pr-4 mb-2 sm:mb-0">
+                        {item.source === 'logs' ? (
+                          <div className="h-8 w-8 shrink-0 rounded-full border border-slate-200 bg-white p-0.5">
+                            <img src={getGravatarUrl(systemEmail)} onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(systemEmail, 'Launchpad'); }} alt="System" className="h-full w-full object-contain rounded-full" />
+                          </div>
+                        ) : (
+                          <img 
+                            src={getGravatarUrl(item.sender)} 
+                            onError={(e) => { e.target.onerror = null; e.target.src = getFallbackAvatar(item.sender, item.sender); }}
+                            alt="Avatar" 
+                            className="h-8 w-8 rounded-full object-cover shrink-0 border border-slate-200" 
+                          />
+                        )}
+                        
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-semibold text-slate-900 truncate">
+                            {item.source === 'logs' ? item.recipient : item.sender.split('@')[0]}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
                             {item.source === 'logs' ? 'Sent Mail' : 'Inbox'}
                           </span>
-                          {item.source === 'logs' ? (
-                            <>
-                              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mr-1">Sent To:</span>
-                              <span className="truncate">{item.recipient}</span>
-                            </>
-                          ) : (
-                            <span className="truncate">{item.sender}</span>
-                          )}
-                        </h4>
-                        <span className="text-sm font-bold text-slate-400 whitespace-nowrap ml-4 mt-1">
-                          Deleted {formatExactDateTime(item.deleted_at)}
+                        </div>
+                      </div>
+
+                      {/* Subject & Snippet Column */}
+                      <div className="flex-1 flex items-center min-w-0 pr-2 sm:pr-24">
+                        <div className="truncate text-sm flex-1">
+                          <span className="font-medium text-slate-800 mr-2">{item.subject}</span>
+                          <span className="text-slate-400 font-normal hidden md:inline">
+                            <span className="mr-1">-</span>
+                            {getEmailSnippet(item.body)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Metadata Column (Date) */}
+                      <div className="flex items-center gap-4 shrink-0 sm:w-24 justify-end mt-2 sm:mt-0">
+                        <span className="text-xs font-medium text-slate-500 group-hover:text-slate-700 transition-colors whitespace-nowrap text-right" title={`Deleted: ${formatExactDateTime(item.deleted_at)}`}>
+                           {formatShortDate(item.deleted_at)}
                         </span>
                       </div>
-                      <h5 className="font-bold text-slate-800 text-lg mb-2">{item.subject}</h5>
-                      <p className="text-slate-600 text-base leading-relaxed line-clamp-2">{getEmailSnippet(item.body)}</p>
+
                     </div>
-                    
-                    <div className="flex flex-col gap-2.5 shrink-0 ml-4 pl-6 border-l border-slate-100 justify-center min-h-[80px]">
-                      <button 
-                        onClick={(e) => triggerRestore(item.id, item.source, e)} 
-                        className="w-full px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-emerald-500 hover:text-white hover:border-emerald-600 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 shadow-sm"
-                        title="Restore Email"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
-                        Restore
-                      </button>
-                      <button 
-                        onClick={(e) => triggerPermanentDelete(item.id, item.source, e)} 
-                        className="w-full px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-rose-500 hover:text-white hover:border-rose-600 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 shadow-sm"
-                        title="Delete Permanently"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
+
+            {/* Minimal Footer */}
+            <div className="px-6 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center text-xs text-slate-400 font-medium z-10">
+              <span>{filteredTrash.length} {filteredTrash.length === 1 ? 'email' : 'emails'}</span>
+            </div>
+
           </div>
         </div>
       </main>

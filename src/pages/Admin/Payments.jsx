@@ -176,117 +176,159 @@ export default function Payments() {
     }
   };
 
+// ==========================================
+  // UNIFIED SMART PAYMENT CALCULATOR (BULLETPROOF)
   // ==========================================
-  // SMART AUTO-FILL FOR PAYMENTS
-  // ==========================================
+  const getPaymentDetails = (client, selectedType) => {
+    if (!client) return { amount: '', start: '', end: '', isFullyPaid: false };
+
+    const startObj = new Date(client.date_started);
+    const endObj = new Date(client.end_date);
+    const rate = parseFloat(client.rate_per_month) || 0;
+
+    // 1. Find where we left off (using verified and pending to avoid overlap)
+    const clientPayments = payments.filter(p => String(p.virtual_office_id) === String(client.id) && p.status !== 'Voided');
+    let nextStartObj = new Date(client.date_started);
+    let isFirstPayment = clientPayments.length === 0;
+
+    if (!isFirstPayment) {
+        const validDates = clientPayments.filter(p => p.coverage_end_date).map(p => new Date(p.coverage_end_date));
+        if (validDates.length > 0) {
+            const maxDate = new Date(Math.max(...validDates));
+            nextStartObj = new Date(maxDate);
+            nextStartObj.setDate(nextStartObj.getDate() + 1); // Start the day AFTER the last payment ended
+        }
+    }
+
+    // --- LOOPHOLE 2 FIXED: Prevent billing beyond the contract ---
+    if (nextStartObj > endObj) {
+        return { amount: 0, start: endObj.toISOString().split('T')[0], end: endObj.toISOString().split('T')[0], isFullyPaid: true };
+    }
+
+    // 2. Initial Prorated Math
+    const daysInStartMonth = new Date(startObj.getFullYear(), startObj.getMonth() + 1, 0).getDate();
+    let firstMonthAmount = rate;
+    let initialEndDate = new Date(startObj.getFullYear(), startObj.getMonth() + 1, 0); 
+    if (startObj.getDate() !== 1) {
+        firstMonthAmount = (rate / daysInStartMonth) * (daysInStartMonth - startObj.getDate() + 1);
+    }
+
+    // --- LOOPHOLE 1 FIXED: Final Prorated Math (Calculates exactly from where we left off) ---
+    const daysInEndMonth = new Date(endObj.getFullYear(), endObj.getMonth() + 1, 0).getDate();
+    const activeDaysLeft = Math.round((endObj - nextStartObj) / (1000 * 60 * 60 * 24)) + 1;
+    let finalMonthAmount = (rate / daysInEndMonth) * activeDaysLeft;
+
+    // 3. Regular Installment Math
+    let stdAmount = rate;
+    let regularEndDate = new Date(nextStartObj);
+    if (client.payment_terms === 'Quarterly') {
+        stdAmount = rate * 3;
+        regularEndDate.setMonth(regularEndDate.getMonth() + 3);
+    } else if (client.payment_terms === 'Semi-Annual') {
+        stdAmount = rate * 6;
+        regularEndDate.setMonth(regularEndDate.getMonth() + 6);
+    } else if (client.payment_terms === 'Annually' || client.payment_terms === 'Annual') {
+        stdAmount = rate * 12;
+        regularEndDate.setMonth(regularEndDate.getMonth() + 12);
+    } else {
+        regularEndDate.setMonth(regularEndDate.getMonth() + 1);
+    }
+    regularEndDate.setDate(regularEndDate.getDate() - 1);
+    
+    // Cap regular installment at contract end to prevent overflow
+    if (regularEndDate > endObj) regularEndDate = new Date(endObj); 
+
+    // 4. Total Balance Math
+    let fullMonthsBetween = (endObj.getFullYear() - startObj.getFullYear()) * 12 + (endObj.getMonth() - startObj.getMonth()) - 1;
+    if (fullMonthsBetween < 0) fullMonthsBetween = 0;
+    if (startObj.getDate() === 1) fullMonthsBetween += 1;
+
+    const totalContractValue = firstMonthAmount + ((rate / daysInEndMonth) * endObj.getDate()) + (fullMonthsBetween * rate);
+    const verifiedPayments = payments.filter(p => String(p.virtual_office_id) === String(client.id) && p.status === 'Verified');
+    const pendingPayments = payments.filter(p => String(p.virtual_office_id) === String(client.id) && p.status === 'Pending');
+    const totalPaidSoFar = verifiedPayments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0) + pendingPayments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0);
+    const remainingBalance = totalContractValue - totalPaidSoFar;
+
+    // 5. Route the exact dates and amounts
+    switch (selectedType) {
+        case 'Initial Prorated Payment':
+            return { amount: firstMonthAmount, start: startObj.toISOString().split('T')[0], end: initialEndDate.toISOString().split('T')[0], isFullyPaid: false };
+        case 'Final Prorated Payment':
+            return { amount: finalMonthAmount, start: nextStartObj.toISOString().split('T')[0], end: endObj.toISOString().split('T')[0], isFullyPaid: false };
+        case 'Regular Installment':
+            return { amount: stdAmount, start: nextStartObj.toISOString().split('T')[0], end: regularEndDate.toISOString().split('T')[0], isFullyPaid: false };
+        case 'Full Contract (Upfront)':
+        case 'Remaining Contract Balance':
+            return { amount: remainingBalance > 0 ? remainingBalance : 0, start: nextStartObj.toISOString().split('T')[0], end: endObj.toISOString().split('T')[0], isFullyPaid: false };
+        default:
+            return { amount: '', start: nextStartObj.toISOString().split('T')[0], end: '', isFullyPaid: false };
+    }
+  };
+
   const handleClientSelect = (e) => {
-    const clientId = e.target.value;
-    const client = clients.find(c => c.id.toString() === clientId);
+      const clientId = e.target.value;
+      const client = clients.find(c => String(c.id) === String(clientId));
 
-    if (client) {
-      const rate = parseFloat(client.rate_per_month) || 0;
-      let autoAmount = rate;
-      let autoType = 'Standard Monthly Installment';
-      
-      // Base the next payment cycle on today's date
-      const today = new Date();
-      const startString = today.toISOString().split('T')[0];
-      let endObj = new Date(today);
-
-      // Adjust amounts and end dates based on the exact contract terms
-      if (client.payment_terms === 'Quarterly') {
-          autoAmount = rate * 3;
-          autoType = 'Standard Quarterly Installment';
-          endObj.setMonth(endObj.getMonth() + 3);
-      } else if (client.payment_terms === 'Semi-Annual') {
-          autoAmount = rate * 6;
-          autoType = 'Standard Semi-Annual Installment'; // FIXED
-          endObj.setMonth(endObj.getMonth() + 6);
-      } else if (client.payment_terms === 'Annual') {
-          autoAmount = rate * 12;
-          autoType = 'Standard Annual Installment';
-          endObj.setMonth(endObj.getMonth() + 12);
-      } else if (client.payment_terms === 'Full Payment') {
-          autoAmount = ''; // Force staff to verify upfront total
-          autoType = 'Full Contract (Upfront)';
-          endObj = new Date(client.end_date); 
-      } else {
-          // Default Monthly
-          endObj.setMonth(endObj.getMonth() + 1);
+      if (!client) {
+           setFormData(prev => ({ ...prev, virtual_office_id: clientId, isFullyPaid: false }));
+           return;
       }
 
-      // Subtract 1 day for proper billing cycles (e.g., April 10 to May 9)
-      endObj.setDate(endObj.getDate() - 1);
-      const endString = endObj.toISOString().split('T')[0];
+      const clientPayments = payments.filter(p => String(p.virtual_office_id) === String(client.id) && p.status !== 'Voided');
+      const startObj = new Date(client.date_started);
+      
+      // Let's test what a regular installment would look like
+      const testDetails = getPaymentDetails(client, 'Regular Installment');
+      
+      let autoType = 'Regular Installment';
+      
+      if (testDetails.isFullyPaid) {
+          autoType = 'Remaining Contract Balance'; // Just to park the dropdown safely
+      } else if (client.payment_terms === 'Full Payment' || client.payment_terms === 'Annually') {
+          autoType = 'Full Contract (Upfront)';
+      } else if (clientPayments.length === 0 && startObj.getDate() !== 1) {
+          autoType = 'Initial Prorated Payment';
+      } else if (testDetails.end === new Date(client.end_date).toISOString().split('T')[0]) {
+          // --- SMART DETECTION: If the next regular end date hits the contract end date, 
+          // it means this is the final payment cycle!
+          autoType = 'Final Prorated Payment';
+      }
+
+      const details = getPaymentDetails(client, autoType);
 
       setFormData(prev => ({
           ...prev,
           virtual_office_id: clientId,
-          amount_paid: autoAmount || '',
           payment_type: autoType,
-          coverage_start_date: startString,
-          coverage_end_date: endString
+          amount_paid: details.amount !== '' ? parseFloat(details.amount).toFixed(2) : '',
+          coverage_start_date: details.start,
+          coverage_end_date: details.end,
+          isFullyPaid: details.isFullyPaid // Store this state so we can disable the button!
       }));
-    } else {
-      setFormData(prev => ({ ...prev, virtual_office_id: clientId }));
-    }
   };
 
-  // ==========================================
-  // SMART RECALCULATION ON TYPE CHANGE
-  // ==========================================
   const handlePaymentTypeChange = (e) => {
-    const selectedType = e.target.value;
-    setFormData(prev => ({ ...prev, payment_type: selectedType }));
+      const selectedType = e.target.value;
+      const client = clients.find(c => String(c.id) === String(formData.virtual_office_id));
+      
+      const details = getPaymentDetails(client, selectedType);
 
-    if (!formData.virtual_office_id) return;
+      setFormData(prev => ({ 
+          ...prev, 
+          payment_type: selectedType,
+          amount_paid: details.amount !== '' ? parseFloat(details.amount).toFixed(2) : prev.amount_paid,
+          coverage_start_date: details.start || prev.coverage_start_date,
+          coverage_end_date: details.end || prev.coverage_end_date
+      }));
+  };
 
-    const client = clients.find(c => c.id.toString() === formData.virtual_office_id.toString());
-    if (!client) return;
-
-    // Run the exact same math to get the amounts
-    const rate = parseFloat(client.rate_per_month) || 0;
-    const startObj = new Date(client.date_started);
-    const endObj = new Date(client.end_date);
-    
-    const daysInStartMonth = new Date(startObj.getFullYear(), startObj.getMonth() + 1, 0).getDate();
-    const daysInEndMonth = new Date(endObj.getFullYear(), endObj.getMonth() + 1, 0).getDate();
-    
-    let firstMonthAmount = rate;
-    let finalMonthAmount = rate;
-    
-    // Total months between start and end (excluding partial edge months)
-    let fullMonthsBetween = (endObj.getFullYear() - startObj.getFullYear()) * 12 + (endObj.getMonth() - startObj.getMonth()) - 1;
-    if (fullMonthsBetween < 0) fullMonthsBetween = 0;
-
-    if (startObj.getDate() !== 1) {
-      firstMonthAmount = (rate / daysInStartMonth) * (daysInStartMonth - startObj.getDate() + 1);
-      finalMonthAmount = (rate / daysInEndMonth) * endObj.getDate();
-    } else {
-      fullMonthsBetween += 1;
-    }
-    
-    const totalContractValue = firstMonthAmount + finalMonthAmount + (fullMonthsBetween * rate);
-
-    // Calculate Total Paid so far for this specific client
-    const clientPayments = payments.filter(p => p.virtual_office_id === client.id && p.status === 'Verified');
-    const totalPaidSoFar = clientPayments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0);
-    const remainingBalance = totalContractValue - totalPaidSoFar;
-
-    // Inject the correct amount based on what they selected!
-    let autoAmount = '';
-    if (selectedType === 'Initial Prorated Month') autoAmount = firstMonthAmount;
-    else if (selectedType === 'Final Prorated Month') autoAmount = finalMonthAmount;
-    else if (selectedType === 'Standard Monthly Installment') autoAmount = rate;
-    else if (selectedType === 'Standard Quarterly Installment') autoAmount = rate * 3;
-    else if (selectedType === 'Standard Semi-Annual Installment') autoAmount = rate * 6;
-    else if (selectedType === 'Standard Annual Installment') autoAmount = rate * 12;
-    else if (selectedType === 'Full Contract (Upfront)') autoAmount = totalContractValue;
-    else if (selectedType === 'Remaining Contract Balance') autoAmount = remainingBalance > 0 ? remainingBalance : 0;
-
-    if (autoAmount !== '') {
-      setFormData(prev => ({ ...prev, amount_paid: parseFloat(autoAmount).toFixed(2) }));
-    }
+  // Helper to dynamically show remaining months in the UI
+  const getMonthsLeft = () => {
+    if (!formData.coverage_start_date || !formData.coverage_end_date) return null;
+    const s = new Date(formData.coverage_start_date);
+    const e = new Date(formData.coverage_end_date);
+    const totalDays = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(1, Math.round(totalDays / 30.44)); // Approximation
   };
 
   const handleSubmitPayment = async (e) => {
@@ -631,7 +673,7 @@ export default function Payments() {
       </div>
 
       {receiptPreview.show && receiptPreview.data && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl flex flex-col max-h-[95vh] w-full max-w-[900px] overflow-hidden animate-fade-in">
             
             <div className="flex flex-col sm:flex-row justify-between items-center p-6 border-b border-slate-200 bg-slate-50">
@@ -802,12 +844,12 @@ export default function Payments() {
         </div>
       )}
 
-{viewModal.show && viewModal.payment && (() => {
+      {viewModal.show && viewModal.payment && (() => {
         const payment = viewModal.payment;
         const client = clients.find(c => c.id === payment.virtual_office_id) || {};
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
             <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               
               {/* Header */}
@@ -972,10 +1014,10 @@ export default function Payments() {
       })()}
 
       {showRecordModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
           <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             
-            <div className="px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
+            <div className="px-6 py-4 sm:px-8 sm:py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
               <div>
                 <h3 className="text-xl font-bold text-slate-800">Record Payment</h3>
                 <p className="text-xs text-slate-500 mt-1">Auto-calculated based on client contract terms.</p>
@@ -983,14 +1025,14 @@ export default function Payments() {
               <button onClick={() => setShowRecordModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-2xl transition-colors">&times;</button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+            <div className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
+              <div className="flex flex-col lg:flex-row gap-8">
                 
                 {/* LEFT SIDE: Input Form */}
-                <form onSubmit={handleSubmitPayment} className="lg:col-span-2 space-y-5 pr-2">
+                <form onSubmit={handleSubmitPayment} className="flex-1 space-y-5 lg:pr-4">
                   <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Select Client *</label>
-                    <select required className="w-full rounded-lg border border-slate-300 px-4 py-2.5 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-[#b8d839] outline-none" value={formData.virtual_office_id} onChange={handleClientSelect}>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">Select Client *</label>
+                    <select required className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white font-bold text-slate-800 focus:ring-2 focus:ring-[#d2f34c] focus:border-[#b8d839] outline-none transition-all shadow-sm" value={formData.virtual_office_id} onChange={handleClientSelect}>
                       <option value="" disabled>-- Choose a Company --</option>
                       {clients.map(client => (
                         <option key={client.id} value={client.id}>{client.company_name} ({client.branch})</option>
@@ -998,19 +1040,16 @@ export default function Payments() {
                     </select>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-100 pt-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-100 pt-5 mt-5">
                     <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-semibold text-slate-700 flex justify-between">
-                        Payment For (Type) * <span className="text-xs font-normal text-blue-500">Auto-filled</span>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest flex justify-between">
+                        Payment For (Type) * <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded">Auto-filled</span>
                       </label>
-                      <select required className="w-full rounded-lg border border-slate-300 px-4 py-2.5 bg-white text-sm" value={formData.payment_type} onChange={handlePaymentTypeChange}>
+                      <select required className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white text-sm font-semibold text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer" value={formData.payment_type} onChange={handlePaymentTypeChange}>
                         <option value="" disabled>-- Select Payment Type --</option>
-                        <option value="Initial Prorated Month">Initial Prorated Month</option>
-                        <option value="Standard Monthly Installment">Standard Monthly Installment</option>
-                        <option value="Standard Quarterly Installment">Standard Quarterly Installment</option>
-                        <option value="Standard Semi-Annual Installment">Standard Semi-Annual Installment</option>
-                        <option value="Standard Annual Installment">Standard Annual Installment</option>
-                        <option value="Final Prorated Month">Final Prorated Month</option>
+                        <option value="Initial Prorated Payment">Initial Prorated Payment</option>
+                        <option value="Regular Installment">Regular Installment {selectedClient ? `(${selectedClient.payment_terms})` : ''}</option>
+                        <option value="Final Prorated Payment">Final Prorated Payment</option>
                         <option value="Full Contract (Upfront)">Full Contract (Upfront)</option>
                         <option value="Remaining Contract Balance">Remaining Contract Balance</option>
                         <option value="Security Deposit / Others">Security Deposit / Others</option>
@@ -1018,71 +1057,90 @@ export default function Payments() {
                     </div>
                     
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-700">Coverage Start</label>
-                      <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50" value={formData.coverage_start_date} onChange={(e) => setFormData({...formData, coverage_start_date: e.target.value})} />
+                      <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">Coverage Start</label>
+                      <input type="date" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm bg-slate-50 font-medium focus:bg-white transition-colors outline-none" value={formData.coverage_start_date} onChange={(e) => setFormData({...formData, coverage_start_date: e.target.value})} />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-700">Coverage End</label>
-                      <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50" value={formData.coverage_end_date} onChange={(e) => setFormData({...formData, coverage_end_date: e.target.value})} />
+                      <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">Coverage End</label>
+                      <input type="date" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm bg-slate-50 font-medium focus:bg-white transition-colors outline-none" value={formData.coverage_end_date} onChange={(e) => setFormData({...formData, coverage_end_date: e.target.value})} />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700 flex justify-between">
-                      Amount Paid (₱) *
-                      <span className="text-xs font-normal text-blue-500">Auto-calculated</span>
-                    </label>
-                    <input required type="number" step="0.01" className="w-full rounded-lg border border-blue-300 bg-blue-50/50 px-4 py-3 font-bold text-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.amount_paid} onChange={(e) => setFormData({...formData, amount_paid: e.target.value})} />
+                  <div className="pt-2">
+                    <div className="flex justify-between items-end mb-1.5">
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest">
+                        Amount Paid (₱) *
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {/* THE NEW SMART HELPER TEXT */}
+                        {(formData.payment_type === 'Remaining Contract Balance' || formData.payment_type === 'Full Contract (Upfront)') && getMonthsLeft() && (
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                            Covers remaining ~{getMonthsLeft()} months
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">Auto-calculated</span>
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                      <input required type="number" step="0.01" className="w-full rounded-xl border border-blue-300 bg-blue-50/50 pl-8 pr-4 py-3 font-black text-xl text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all shadow-sm" value={formData.amount_paid} onChange={(e) => setFormData({...formData, amount_paid: e.target.value})} />
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-100 pt-5 mt-5">
                     <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Mode of Payment *</label>
-                      <select required className="w-full rounded-lg border border-slate-300 px-4 py-2.5 bg-white text-sm" value={formData.mode_of_payment} onChange={(e) => setFormData({...formData, mode_of_payment: e.target.value})}>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">Mode of Payment *</label>
+                      <select required className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white text-sm font-semibold text-slate-700 shadow-sm focus:ring-2 focus:ring-[#d2f34c] outline-none cursor-pointer" value={formData.mode_of_payment} onChange={(e) => setFormData({...formData, mode_of_payment: e.target.value})}>
                         <option value="" disabled>-- Select Method --</option>
                         <option value="Cash">Cash</option>
                         <option value="GCash">GCash</option>
-                        <option value="Bank Transfer (BDO)">Bank Transfer (BDO)</option>
-                        <option value="Bank Transfer (Metrobank)">Bank Transfer (Metrobank)</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
                         <option value="Check">Check</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Date of Payment *</label>
-                      <input required type="date" className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm" value={formData.payment_date} onChange={(e) => setFormData({...formData, payment_date: e.target.value})} />
+                      <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">Date of Payment *</label>
+                      <input required type="date" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-[#d2f34c] outline-none" value={formData.payment_date} onChange={(e) => setFormData({...formData, payment_date: e.target.value})} />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  <div className="pb-4">
+                    <label className="mb-1.5 block text-xs font-bold text-slate-600 uppercase tracking-widest">
                       {formData.mode_of_payment === 'Cash' ? 'Physical OR Number (Optional)' : 'Reference Number *'}
                     </label>
                     <input 
                       type="text" required={formData.mode_of_payment !== 'Cash'}
                       placeholder={formData.mode_of_payment === 'Cash' ? "e.g. OR-1234 or leave blank" : "e.g. 100234958"} 
-                      className="w-full rounded-lg border border-slate-300 px-4 py-2.5 font-mono text-sm" 
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm text-slate-800 shadow-sm focus:ring-2 focus:ring-[#d2f34c] outline-none" 
                       value={formData.reference_number} onChange={(e) => setFormData({...formData, reference_number: e.target.value})} 
                     />
                   </div>
 
-                  <div className="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-5">
-                    <button type="button" onClick={() => setShowRecordModal(false)} className="rounded-lg px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-                    <button type="submit" disabled={isSubmitting} className="rounded-lg bg-[#d2f34c] px-8 py-2.5 font-bold text-slate-900 hover:bg-[#b8d839] disabled:opacity-50 shadow-sm transition-colors">
+                  <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+                    {formData.isFullyPaid && (
+                      <div className="mr-auto flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-200">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                        <span className="text-xs font-bold uppercase tracking-wider">Contract Fully Paid</span>
+                      </div>
+                    )}
+                    
+                    <button type="button" onClick={() => setShowRecordModal(false)} className="rounded-xl px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 transition-colors text-sm">Cancel</button>
+                    <button type="submit" disabled={isSubmitting || formData.isFullyPaid} className="rounded-xl bg-[#d2f34c] px-8 py-3 font-black text-slate-900 hover:bg-[#b8d839] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-[#d2f34c]/20 transition-all text-sm uppercase tracking-wide">
                       {isSubmitting ? 'Saving...' : 'Save Record'}
                     </button>
                   </div>
                 </form>
 
                 {/* RIGHT SIDE: Smart Billing Assistant */}
-                <div className="lg:col-span-1 border-t lg:border-t-0 lg:border-l border-slate-200 pt-8 lg:pt-0 lg:pl-8">
+                <div className="w-full lg:w-[320px] xl:w-[380px] shrink-0 border-t lg:border-t-0 lg:border-l border-slate-200 pt-8 lg:pt-0 lg:pl-8">
                   <div className="sticky top-0">
-                    <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-3 mb-5 flex items-center gap-2">
-                      <span className="text-xl">📊</span> Billing Assistant
+                    <h4 className="font-black text-slate-800 border-b border-slate-200 pb-3 mb-5 flex items-center gap-2 uppercase tracking-wide text-xs">
+                      <span className="text-lg">📊</span> Billing Assistant
                     </h4>
 
                     {selectedClient ? (() => {
-                      // Instantly calculate the breakdown for the selected client
                       const rate = parseFloat(selectedClient.rate_per_month) || 0;
                       const startObj = new Date(selectedClient.date_started);
                       const endObj = new Date(selectedClient.end_date);
@@ -1101,92 +1159,102 @@ export default function Payments() {
                       let stdAmount = rate;
                       if (selectedClient.payment_terms === 'Quarterly') stdAmount = rate * 3;
                       if (selectedClient.payment_terms === 'Semi-Annual') stdAmount = rate * 6;
-                      if (selectedClient.payment_terms === 'Annual') stdAmount = rate * 12;
+                      if (selectedClient.payment_terms === 'Annually' || selectedClient.payment_terms === 'Annual') stdAmount = rate * 12;
 
                       return (
                         <div className="space-y-4 animate-fade-in">
                           {/* Contract Overview Box */}
-                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contract Data</p>
-                            <p className="font-bold text-slate-800 text-sm truncate" title={selectedClient.company_name}>{selectedClient.company_name}</p>
-                            <div className="mt-3 space-y-1.5 text-xs">
-                              <div className="flex justify-between">
+                          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Contract Data</p>
+                            <p className="font-black text-slate-800 text-base truncate mb-3" title={selectedClient.company_name}>{selectedClient.company_name}</p>
+                            <div className="space-y-2 text-xs font-medium">
+                              <div className="flex justify-between items-center">
                                 <span className="text-slate-500">Tier:</span>
-                                <span className="font-semibold text-slate-700 truncate max-w-[120px]" title={selectedClient.package_tier}>{selectedClient.package_tier}</span>
+                                <span className="font-bold text-slate-700 truncate max-w-[140px]" title={selectedClient.package_tier}>{selectedClient.package_tier}</span>
                               </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-500">Monthly Rate:</span>
-                                <span className="font-bold text-slate-800">{formatCurrency(rate)}</span>
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-500">Rate:</span>
+                                <span className="font-bold text-slate-800">{formatCurrency(rate)} <span className="text-slate-400 font-normal">/mo</span></span>
                               </div>
-                              <div className="flex justify-between">
+                              <div className="flex justify-between items-center">
                                 <span className="text-slate-500">Term:</span>
-                                <span className="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase">{selectedClient.payment_terms}</span>
+                                <span className="font-black text-blue-700 bg-blue-100/50 px-2 py-0.5 rounded border border-blue-200 uppercase tracking-wider">{selectedClient.payment_terms}</span>
                               </div>
                             </div>
                           </div>
 
-                          {/* Mathematical Breakdown & Balance Box */}
-                          <div className="bg-slate-800 p-5 rounded-xl shadow-lg border border-slate-700 text-sm text-slate-300">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Proration Guide</p>
+                          {/* Mathematical Breakdown Box */}
+                          <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 text-sm text-slate-300 relative overflow-hidden">
+                            <div className="absolute -right-12 -top-12 w-32 h-32 bg-[#d2f34c] rounded-full blur-[60px] opacity-10 pointer-events-none"></div>
                             
-                            <div className="space-y-3 border-b border-slate-600 pb-4 mb-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Proration Guide</p>
+                            
+                            <div className="space-y-3.5 border-b border-slate-700/50 pb-5 mb-5">
                               <div className="flex justify-between items-center">
-                                <span>First Month <span className="text-[10px] text-slate-500 block">Prorated</span></span>
-                                <span className="font-medium text-[#d2f34c]">{formatCurrency(firstMonthAmount)}</span>
+                                <span className="text-slate-400">Initial Prorated</span>
+                                <span className="font-semibold text-white">{formatCurrency(firstMonthAmount)}</span>
                               </div>
-                              <div className="flex justify-between items-center bg-slate-700/50 p-2 rounded -mx-2 px-2">
-                                <span className="text-white font-medium">Standard Installment <span className="text-[10px] text-slate-400 block">{selectedClient.payment_terms}</span></span>
-                                <span className="font-bold text-xl text-white">{formatCurrency(stdAmount)}</span>
+                              <div className="flex justify-between items-center bg-slate-800/80 p-3 rounded-xl border border-slate-700 shadow-inner">
+                                <div>
+                                  <span className="text-white font-bold block">Regular Installment</span>
+                                  <span className="text-[10px] text-slate-400 uppercase tracking-wider">{selectedClient.payment_terms}</span>
+                                </div>
+                                <span className="font-black text-lg text-[#d2f34c]">{formatCurrency(stdAmount)}</span>
                               </div>
                               <div className="flex justify-between items-center">
-                                <span>Final Month <span className="text-[10px] text-slate-500 block">Prorated</span></span>
-                                <span className="font-medium text-[#d2f34c]">{formatCurrency(finalMonthAmount)}</span>
+                                <span className="text-slate-400">Final Prorated</span>
+                                <span className="font-semibold text-white">{formatCurrency(finalMonthAmount)}</span>
                               </div>
                             </div>
 
                             {(() => {
-                               // Calculate live balance for the UI
                                let fullMonthsBetweenUI = (endObj.getFullYear() - startObj.getFullYear()) * 12 + (endObj.getMonth() - startObj.getMonth()) - 1;
                                if (fullMonthsBetweenUI < 0) fullMonthsBetweenUI = 0;
                                if (startObj.getDate() === 1) fullMonthsBetweenUI += 1;
                                const tcv = firstMonthAmount + finalMonthAmount + (fullMonthsBetweenUI * rate);
                                
-                               const pastPayments = payments.filter(p => p.virtual_office_id === selectedClient.id && p.status === 'Verified');
+                               // LOOPHOLE FIXED: Ensure strict String matching and account for Pending processing!
+                               const pastPayments = payments.filter(p => String(p.virtual_office_id) === String(selectedClient.id) && p.status === 'Verified');
+                               const pendingPayments = payments.filter(p => String(p.virtual_office_id) === String(selectedClient.id) && p.status === 'Pending');
+                               
                                const paidSoFar = pastPayments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0);
-                               const remBal = tcv - paidSoFar;
+                               const pendingSoFar = pendingPayments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0);
+                               const remBal = tcv - paidSoFar - pendingSoFar;
 
                                return (
-                                 <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700 mb-4">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Account Ledger</p>
-                                    <div className="flex justify-between text-xs mb-1">
+                                 <div className="bg-slate-950 rounded-xl p-4 border border-slate-800">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Account Ledger</p>
+                                    <div className="flex justify-between text-xs mb-2">
                                       <span className="text-slate-400">Total Contract Value:</span>
-                                      <span className="font-semibold">{formatCurrency(tcv)}</span>
+                                      <span className="font-semibold text-white">{formatCurrency(tcv)}</span>
                                     </div>
-                                    <div className="flex justify-between text-xs mb-2 pb-2 border-b border-slate-700/50">
+                                    <div className="flex justify-between text-xs mb-2">
                                       <span className="text-slate-400">Total Paid (Verified):</span>
-                                      <span className="font-semibold text-green-400">{formatCurrency(paidSoFar)}</span>
+                                      <span className="font-semibold text-emerald-400">{formatCurrency(paidSoFar)}</span>
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-slate-300 font-bold">Remaining Balance:</span>
-                                      <span className="font-bold text-lg text-white">{formatCurrency(remBal > 0 ? remBal : 0)}</span>
+                                    
+                                    {/* Prevent Double Billing */}
+                                    {pendingSoFar > 0 && (
+                                      <div className="flex justify-between text-xs mb-2">
+                                        <span className="text-slate-400">Processing (Pending):</span>
+                                        <span className="font-semibold text-amber-400">-{formatCurrency(pendingSoFar)}</span>
+                                      </div>
+                                    )}
+
+                                    <div className="flex justify-between items-center pt-3 border-t border-slate-800 mt-2">
+                                      <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Balance:</span>
+                                      <span className="font-black text-base text-white">{formatCurrency(remBal > 0 ? remBal : 0)}</span>
                                     </div>
                                  </div>
                                );
                             })()}
-
-                            <div className="flex items-start gap-2">
-                              <svg className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              <p className="text-[10px] leading-relaxed text-slate-400">
-                                If you change the <strong className="text-slate-300">Payment Type</strong> dropdown, the Amount Paid will automatically recalculate.
-                              </p>
-                            </div>
                           </div>
                         </div>
                       );
                     })() : (
-                      <div className="h-48 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-center p-6 bg-slate-50/50">
-                        <svg className="w-8 h-8 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                        <p className="text-xs text-slate-500 font-medium">Select a company on the left to view the contract and billing breakdown.</p>
+                      <div className="h-64 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-center p-6 bg-slate-50/50">
+                        <svg className="w-10 h-10 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                        <p className="text-xs text-slate-500 font-semibold leading-relaxed max-w-[200px]">Select a company on the left to load the billing calculator.</p>
                       </div>
                     )}
                   </div>
