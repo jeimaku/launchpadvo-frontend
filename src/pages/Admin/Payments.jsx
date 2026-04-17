@@ -398,127 +398,138 @@ export default function Payments() {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden overflow-y-auto max-h-screen">
-        <header className="mb-8 flex items-center justify-between">
+        <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
           <div>
-            <h2 className="text-3xl font-bold text-slate-800">Payments & Receipts</h2>
-            <p className="text-slate-500 mt-1">Master financial ledger and verification queue.</p>
+            <h2 className="text-3xl font-black text-slate-800 tracking-tight">Payments & Receipts</h2>
+            <p className="text-slate-500 mt-1 text-sm font-medium">Master financial ledger and verification queue.</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 relative">
             {canViewNotifications && <NotificationBell />}
-            <button onClick={() => setShowRecordModal(true)} className="rounded-lg bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm flex items-center gap-2">
+            <button onClick={() => setShowRecordModal(true)} className="rounded-xl bg-[#d2f34c] px-6 py-2.5 font-bold text-slate-900 transition-colors hover:bg-[#b8d839] shadow-sm flex items-center gap-2 text-sm uppercase tracking-wide">
               <span>+</span> Record Payment
             </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
-          <div className="bg-white p-4 lg:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 lg:gap-4 overflow-hidden">
-            <div className="shrink-0 h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
-              <svg className="w-5 h-5 lg:w-6 lg:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        {/* --- SLEEK KPI CARDS --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="h-14 w-14 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs lg:text-sm font-bold text-slate-500 uppercase truncate">Pending Verification</p>
-              <p className="text-xl lg:text-2xl font-black text-slate-800 truncate">{formatCurrency(totalPending)}</p>
-            </div>
-          </div>
-          <div className="bg-white p-4 lg:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 lg:gap-4 overflow-hidden">
-            <div className="shrink-0 h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-green-100 flex items-center justify-center text-green-600">
-              <svg className="w-5 h-5 lg:w-6 lg:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs lg:text-sm font-bold text-slate-500 uppercase truncate">Verified Revenue</p>
-              <p className="text-xl lg:text-2xl font-black text-slate-800 truncate">{formatCurrency(totalVerified)}</p>
+            <div>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">Pending Verification</p>
+              <p className="text-2xl font-black text-slate-800">{formatCurrency(totalPending)}</p>
             </div>
           </div>
-          <div className="bg-white p-4 lg:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 lg:gap-4 overflow-hidden opacity-75">
-            <div className="shrink-0 h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-red-100 flex items-center justify-center text-red-600">
-              <svg className="w-5 h-5 lg:w-6 lg:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="h-14 w-14 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs lg:text-sm font-bold text-slate-500 uppercase truncate">Total Voided</p>
-              <p className="text-xl lg:text-2xl font-black text-slate-800 truncate">{formatCurrency(totalVoided)}</p>
+            <div>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">Verified Revenue</p>
+              <p className="text-2xl font-black text-slate-800">{formatCurrency(totalVerified)}</p>
             </div>
           </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow opacity-90">
+            <div className="h-14 w-14 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Voided</p>
+              <p className="text-2xl font-black text-rose-600">{formatCurrency(totalVoided)}</p>
+            </div>
+          </div>
+
         </div>
 
-        <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4 shrink-0">
-          <div className="w-full">
-            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Search</label>
-            <input 
-              type="text" 
-              placeholder="🔍 Search by Company, Ref #, or SI Number..."  
-              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-[#b8d839] focus:ring-1 focus:ring-[#b8d839]"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+        {/* --- STRUCTURED FILTERS --- */}
+        <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-5 shrink-0 relative">
+          
+          {/* Clear Filters Button (Top Right) */}
+          {(searchTerm || filterStatus !== 'All' || filterMode !== 'All' || filterMaker !== 'All' || filterCoverageStart || filterCoverageEnd) && (
+            <button onClick={() => { setSearchTerm(''); setFilterStatus('All'); setFilterMode('All'); setFilterMaker('All'); setFilterCoverageStart(''); setFilterCoverageEnd(''); }} className="absolute top-6 right-6 text-[10px] font-bold text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition-colors border border-rose-100 hidden md:block">
+              CLEAR ALL
+            </button>
+          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Top Row: Search */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Search</label>
+            <div className="relative w-full">
+              <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              <input 
+                type="text" 
+                placeholder="Search by Company, Ref #, or SI Number..."  
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#d2f34c] transition-all"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+          
+          {/* Middle Row: Selects */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Payment Status</label>
-              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Payment Status</label>
+              <select className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#d2f34c] outline-none cursor-pointer" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="All">All Statuses</option>
                 <option value="Pending">Pending</option>
                 <option value="Verified">Verified</option>
                 <option value="Voided">Voided</option>
               </select>
             </div>
-
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Mode of Payment</label>
-              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterMode} onChange={(e) => setFilterMode(e.target.value)}>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Mode of Payment</label>
+              <select className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#d2f34c] outline-none cursor-pointer" value={filterMode} onChange={(e) => setFilterMode(e.target.value)}>
                 <option value="All">All Modes</option>
                 {uniqueModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
               </select>
             </div>
-
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Encoded By</label>
-              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterMaker} onChange={(e) => setFilterMaker(e.target.value)}>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Encoded By</label>
+              <select className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#d2f34c] outline-none cursor-pointer" value={filterMaker} onChange={(e) => setFilterMaker(e.target.value)}>
                 <option value="All">All Staff</option>
                 {uniqueMakers.map(maker => <option key={maker} value={maker}>{maker}</option>)}
               </select>
             </div>
           </div>
 
-          {/* NEW: Coverage Period Filter Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 mt-4 border-t border-slate-100">
+          {/* Bottom Row: Coverage Dates */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-100 pt-5">
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider flex justify-between">
-                Coverage From <span className="font-normal text-slate-400 capitalize">Start Date</span>
-              </label>
-              <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterCoverageStart} onChange={(e) => setFilterCoverageStart(e.target.value)} />
+              <div className="flex justify-between items-end mb-2">
+                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Coverage From</label>
+                 <span className="text-[10px] text-slate-400 font-medium">Start Date</span>
+              </div>
+              <input type="date" className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#d2f34c] outline-none transition-all" value={filterCoverageStart} onChange={(e) => setFilterCoverageStart(e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider flex justify-between">
-                Coverage To <span className="font-normal text-slate-400 capitalize">End Date</span>
-              </label>
-              <div className="flex gap-2">
-                <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white" value={filterCoverageEnd} onChange={(e) => setFilterCoverageEnd(e.target.value)} />
-                
-                {/* Clear Button appears only if a date is selected */}
-                {(filterCoverageStart || filterCoverageEnd) && (
-                  <button onClick={() => { setFilterCoverageStart(''); setFilterCoverageEnd(''); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 text-xs font-bold rounded-lg transition-colors">
-                    Clear
-                  </button>
-                )}
+              <div className="flex justify-between items-end mb-2">
+                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Coverage To</label>
+                 <span className="text-[10px] text-slate-400 font-medium">End Date</span>
               </div>
+              <input type="date" className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#d2f34c] outline-none transition-all" value={filterCoverageEnd} onChange={(e) => setFilterCoverageEnd(e.target.value)} />
             </div>
           </div>
+
         </div>
 
         <div className="rounded-xl bg-white shadow-sm border border-slate-100 overflow-hidden mb-8">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-600 min-w-[1050px]">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="px-6 py-4 font-semibold w-32">Date & Maker</th>
-                  <th className="px-6 py-4 font-semibold w-48">Company & Type</th>
-                  <th className="px-6 py-4 font-semibold w-40">Coverage Period</th>
-                  <th className="px-6 py-4 font-semibold w-32">Amount & Mode</th>
-                  <th className="px-6 py-4 font-semibold w-40">Ref & SI Number</th>
-                  <th className="px-6 py-4 font-semibold w-32">Status</th>
-                  <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                  <th className="px-6 py-3 font-bold w-32">Date & Maker</th>
+                  <th className="px-6 py-3 font-bold w-48">Company & Type</th>
+                  <th className="px-6 py-3 font-bold w-40">Coverage Period</th>
+                  <th className="px-6 py-3 font-bold w-32">Amount & Mode</th>
+                  <th className="px-6 py-3 font-bold w-40">Ref & SI Number</th>
+                  <th className="px-6 py-3 font-bold w-32">Status</th>
+                  <th className="px-6 py-3 font-bold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

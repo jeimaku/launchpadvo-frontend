@@ -63,6 +63,11 @@ export default function LPCVirtualOffice() {
   const [filterAutoEmail, setFilterAutoEmail] = useState('All'); 
   // NOTE: filterKYC has been completely removed
 
+  const [importSettings, setImportSettings] = useState({
+    auto_email_enabled: true,
+    documents_submitted: false
+  });
+
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10); 
   
@@ -706,8 +711,8 @@ const handleFileUpload = (e) => {
       payment_terms: client.payment_terms,
       contract_status: client.contract_status,
       remarks: client.remarks,
-      auto_email_enabled: true,
-      documents_submitted: false
+      auto_email_enabled: importSettings.auto_email_enabled,     // <--- UPDATED
+      documents_submitted: importSettings.documents_submitted    // <--- UPDATED
     }));
 
     setIsImporting(true);
@@ -947,12 +952,12 @@ const handleFileUpload = (e) => {
       <Sidebar />
 
       <div className="flex-1 p-8 overflow-hidden flex flex-col h-screen">
-        <header className="mb-8 flex items-center justify-between">
+        <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
           <div>
-            <h2 className="text-3xl font-bold text-slate-800">LPC Virtual Office</h2>
-            <p className="text-slate-500 mt-1">Manage all clients stationed at the Commercenter branch.</p>
+            <h2 className="text-3xl font-black text-slate-800 tracking-tight">LPC Virtual Office</h2>
+            <p className="text-slate-500 mt-1 text-sm font-medium">Manage all clients stationed at the Commercenter branch.</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 relative">
             {canViewNotifications && <NotificationBell />}
             
             {/* NEW EXPORT/IMPORT BUTTON GROUP */}
@@ -1086,13 +1091,13 @@ const handleFileUpload = (e) => {
         <div className="rounded-xl bg-white shadow-sm border border-slate-100 flex flex-col flex-1 overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
             <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100 sticky top-0 z-10">
+              <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="px-4 py-4 font-semibold">Company & Contacts</th>
-                  <th className="px-4 py-4 font-semibold">Package & Emails</th>
-                  <th className="px-4 py-4 font-semibold">Rate & Terms</th>
-                  <th className="px-4 py-4 font-semibold">Contract & Automation Insights</th>
-                  <th className="px-4 py-4 font-semibold text-center">Actions</th>
+                  <th className="px-4 py-4 font-bold">Company & Contacts</th>
+                  <th className="px-4 py-4 font-bold">Package & Emails</th>
+                  <th className="px-4 py-4 font-bold">Rate & Terms</th>
+                  <th className="px-4 py-4 font-bold">Contract & Automation Insights</th>
+                  <th className="px-4 py-4 font-bold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1403,7 +1408,7 @@ const handleFileUpload = (e) => {
                  {/* Powerful Automation Engine Panel */}
                  <div className="rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden flex flex-col flex-1">
                     <div className="bg-blue-50 border-b border-blue-100 px-5 py-3 flex justify-between items-center">
-                       <h5 className="text-[11px] font-black text-blue-800 uppercase tracking-widest flex items-center gap-1.5"><span>⚡</span> Automation Engine</h5>
+                       <h5 className="text-[11px] font-black text-blue-800 uppercase tracking-widest flex items-center gap-1.5">Automation Engine</h5>
                        {/* DYNAMIC DATE DISPLAY */}
                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border ${getNextAutomatedEmail().color} border-slate-200 shadow-sm`}>
                          {getNextAutomatedEmail().text}
@@ -1598,28 +1603,65 @@ const handleFileUpload = (e) => {
           <div className="bg-white rounded-3xl w-full max-w-6xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fade-in">
             
             {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-white shrink-0">
               <div>
-                <h3 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                  <span>📥</span> Review Import Data
+                <h3 className="text-2xl font-black text-slate-900 flex items-center gap-2 mb-1">
+                  <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 12v9m0 0l-3-3m3 3l3-3"></path></svg>
+                  Review Import Data
                 </h3>
-                <p className="text-slate-500 font-medium text-sm mt-1">
+                <p className="text-slate-500 font-medium text-sm">
                   Please review the sanitized records below. Rows with missing required fields are highlighted in <strong className="text-rose-500">red</strong> and will be skipped.
                 </p>
               </div>
-              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-3xl">&times;</button>
+              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-2xl transition-colors">&times;</button>
             </div>
 
-{/* The Editable Review Grid */}
+            {/* --- COMPACT AUTOMATION ENGINE BAR --- */}
+            <div className="bg-[#1e293b] px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0 border-y border-slate-800">
+              <div className="mb-4 md:mb-0 flex flex-col items-start w-full md:w-auto">
+                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 mb-0.5">
+                  <svg className="w-4 h-4 text-[#d2f34c]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  Automation Engine
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">These rules will apply to all <span className="font-bold text-white">{importStaging.filter(r => !r.hasErrors).length}</span> valid clients in this batch.</p>
+              </div>
+              
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-sm flex-1 md:flex-none">
+                  <div className="relative inline-block w-9 h-5 transition duration-200 ease-in-out rounded-full shrink-0">
+                    <input type="checkbox" className="peer absolute w-0 h-0 opacity-0" checked={importSettings.auto_email_enabled} onChange={(e) => setImportSettings({...importSettings, auto_email_enabled: e.target.checked})} />
+                    <span className="absolute inset-0 bg-slate-600 rounded-full transition-colors peer-checked:bg-[#d2f34c]"></span>
+                    <span className="absolute left-1 top-1 bg-white w-3 h-3 rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-white uppercase tracking-wider leading-none">Auto-Emails</span>
+                    <span className="text-[8px] text-slate-400 font-medium leading-tight mt-0.5">Expiry & Termination</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-sm flex-1 md:flex-none">
+                  <div className="relative inline-block w-9 h-5 transition duration-200 ease-in-out rounded-full shrink-0">
+                    <input type="checkbox" className="peer absolute w-0 h-0 opacity-0" checked={importSettings.documents_submitted} onChange={(e) => setImportSettings({...importSettings, documents_submitted: e.target.checked})} />
+                    <span className="absolute inset-0 bg-slate-600 rounded-full transition-colors peer-checked:bg-slate-400"></span>
+                    <span className="absolute left-1 top-1 bg-white w-3 h-3 rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-white uppercase tracking-wider leading-none">Docs Surrendered</span>
+                    <span className="text-[8px] text-slate-400 font-medium leading-tight mt-0.5">Disables 90-day request</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* The Editable Review Grid */}
             <div className="flex-1 p-6 bg-slate-50/50 overflow-hidden flex flex-col">
               <div className="border border-slate-200 rounded-xl shadow-sm bg-white flex flex-col flex-1 overflow-hidden">
                 
                 {/* NEW: Scrollable Wrapper for Horizontal & Vertical Scrolling */}
                 <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
                   <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[1200px]">
-{/* Excel-Style Draggable Headers */}
-                    <thead className="bg-slate-100 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm select-none">
-                      <tr>
+                    {/* Excel-Style Draggable Headers */}
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm select-none">                      <tr>
                         <ResizableHeader title="Status" defaultWidth={110} />
                         <ResizableHeader title="Company Name" defaultWidth={220} />
                         <ResizableHeader title="Contact Person 1" defaultWidth={180} />
@@ -1786,24 +1828,24 @@ const handleFileUpload = (e) => {
             </div>
 
             {/* Modal Footer (Counters & Execution) */}
-            <div className="p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 shadow-[0_-4px_15px_rgba(0,0,0,0.03)] z-10">
-              <div className="flex gap-6">
-                <div className="text-sm bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-lg flex flex-col items-center">
-                   <span className="text-[10px] uppercase font-black text-emerald-600/70 tracking-wider">Valid Rows</span>
-                   <span className="font-black text-emerald-600 text-xl">{importStaging.filter(r => !r.hasErrors).length}</span>
+            <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 z-10">
+              <div className="flex gap-4">
+                <div className="bg-emerald-50 border border-emerald-100 px-4 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[90px]">
+                   <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-0.5">Valid Rows</span>
+                   <span className="font-black text-emerald-600 text-lg leading-none">{importStaging.filter(r => !r.hasErrors).length}</span>
                 </div>
-                <div className="text-sm bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg flex flex-col items-center">
-                   <span className="text-[10px] uppercase font-black text-rose-500/70 tracking-wider">Skipped</span>
-                   <span className="font-black text-rose-500 text-xl">{importStaging.filter(r => r.hasErrors).length}</span>
+                <div className="bg-rose-50 border border-rose-100 px-4 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[90px]">
+                   <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-0.5">Skipped</span>
+                   <span className="font-black text-rose-500 text-lg leading-none">{importStaging.filter(r => r.hasErrors).length}</span>
                 </div>
               </div>
               
-              <div className="flex gap-3">
-                <button onClick={() => setShowImportModal(false)} className="rounded-xl px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+              <div className="flex items-center gap-4">
+                <button onClick={() => setShowImportModal(false)} className="text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors">Cancel</button>
                 <button 
                   onClick={executeBulkImport} 
                   disabled={isImporting || importStaging.filter(r => !r.hasErrors).length === 0}
-                  className="rounded-xl bg-[#d2f34c] px-8 py-3 text-sm font-black text-slate-900 hover:bg-[#b8d839] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide flex items-center gap-2"
+                  className="rounded-xl bg-[#d2f34c] px-6 py-3 text-sm font-black text-slate-900 hover:bg-[#b8d839] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
                 >
                   {isImporting ? 'Importing...' : `Confirm & Import ${importStaging.filter(r => !r.hasErrors).length} Clients`}
                 </button>
