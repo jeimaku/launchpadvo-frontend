@@ -71,7 +71,7 @@ function BranchCard({ label, data, accentColor, dotColor }) {
   const rows = [
     { label: 'Virtual Office', val: data.VO, color: accentColor },
     { label: 'Use of Address', val: data.UOA, color: '#6366f1' },
-    { label: 'Custom Packages', val: data.Custom, color: '#f59e0b' },
+    { label: 'Custom Service', val: data.Custom, color: '#f59e0b' },
   ];
 
   const segments = rows.map((r) => ({
@@ -396,10 +396,12 @@ export default function Dashboard() {
             </div>
 
             {/* ── WIDGET ROW ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* CHANGE THIS LINE */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
               {/* Action List Table */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2 flex flex-col overflow-hidden">
+              {/* CHANGE THIS LINE */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-3 flex flex-col overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 z-20">
                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Action List & Feedback</h3>
                   <span className="text-[10px] font-bold bg-rose-50 text-rose-600 px-3 py-1 rounded-full uppercase tracking-wider border border-rose-100">
@@ -457,7 +459,8 @@ export default function Dashboard() {
               </div>
 
               {/* ── REDESIGNED SERVICE DISTRIBUTION (LIGHT THEME) ── */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+              {/* CHANGE THIS LINE */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2 flex flex-col overflow-hidden">
                 {/* Card Header */}
                 <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">

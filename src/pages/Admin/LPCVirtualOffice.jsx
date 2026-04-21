@@ -641,7 +641,9 @@ export default function LPCVirtualOffice() {
           payment_terms: row[colMap.terms] ? parsePaymentTerms(row[colMap.terms]) : '',
           
           contract_status: row[colMap.status] ? String(row[colMap.status]).trim() : 'Active',
-          remarks: row[colMap.remarks] ? String(row[colMap.remarks]).trim() : ''
+          remarks: row[colMap.remarks] ? String(row[colMap.remarks]).trim() : '',
+          auto_email_enabled: true,    // <-- ADD THIS
+          documents_submitted: false   // <-- ADD THIS
         };
 
         // Inline validation
@@ -711,8 +713,8 @@ const handleFileUpload = (e) => {
       payment_terms: client.payment_terms,
       contract_status: client.contract_status,
       remarks: client.remarks,
-      auto_email_enabled: importSettings.auto_email_enabled,     // <--- UPDATED
-      documents_submitted: importSettings.documents_submitted    // <--- UPDATED
+      auto_email_enabled: client.auto_email_enabled,
+      documents_submitted: client.documents_submitted
     }));
 
     setIsImporting(true);
@@ -947,6 +949,83 @@ const handleFileUpload = (e) => {
     return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
   };
 
+  // --- NEW: INLINE TABLE TOGGLES ---
+  const [isUpdatingToggles, setIsUpdatingToggles] = useState(false);
+
+  const handleToggleInline = async (client, field, newValue) => {
+    // Optimistic UI update (feels instant to the user)
+    setClients(prev => prev.map(c => c.id === client.id ? { ...c, [field]: newValue ? 1 : 0 } : c));
+
+    const finalPackageTier = client.package_tier === 'Custom' || client.package_tier?.startsWith('Custom:')
+      ? (client.package_tier.startsWith('Custom:') ? client.package_tier : `Custom: ${client.custom_package_name || ''}`)
+      : client.package_tier;
+
+    const payload = { 
+      ...client, 
+      package_tier: finalPackageTier,
+      branch: 'LPC', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
+      auto_email_enabled: field === 'auto_email_enabled' ? (newValue ? 1 : 0) : (client.auto_email_enabled ? 1 : 0),
+      documents_submitted: field === 'documents_submitted' ? (newValue ? 1 : 0) : (client.documents_submitted ? 1 : 0)
+    };
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${client.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error('Failed to update toggle');
+    } catch (error) {
+      console.error(error);
+      setActionAlert({ show: true, message: 'Failed to update setting.', isError: true });
+      fetchClients(); // Revert instantly on failure
+    }
+  };
+
+  const handleBatchToggle = async (field, newValue) => {
+    if (currentItems.length === 0) return;
+    
+    // Optimistic UI update for the whole page
+    setClients(prev => prev.map(c => {
+      if (currentItems.some(item => item.id === c.id)) {
+        return { ...c, [field]: newValue ? 1 : 0 };
+      }
+      return c;
+    }));
+
+    setIsUpdatingToggles(true);
+    try {
+      const token = localStorage.getItem('token');
+      const promises = currentItems.map(client => {
+        const finalPackageTier = client.package_tier === 'Custom' || client.package_tier?.startsWith('Custom:')
+          ? (client.package_tier.startsWith('Custom:') ? client.package_tier : `Custom: ${client.custom_package_name || ''}`)
+          : client.package_tier;
+
+        const payload = { 
+          ...client, 
+          package_tier: finalPackageTier,
+          branch: 'LPC', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
+          auto_email_enabled: field === 'auto_email_enabled' ? (newValue ? 1 : 0) : (client.auto_email_enabled ? 1 : 0),
+          documents_submitted: field === 'documents_submitted' ? (newValue ? 1 : 0) : (client.documents_submitted ? 1 : 0)
+        };
+
+        return fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${client.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+      });
+
+      await Promise.all(promises); // Executes all row updates simultaneously
+    } catch (error) {
+      setActionAlert({ show: true, message: 'Failed to apply batch update.', isError: true });
+      fetchClients();
+    } finally {
+      setIsUpdatingToggles(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       <Sidebar />
@@ -1096,6 +1175,33 @@ const handleFileUpload = (e) => {
                   <th className="px-4 py-4 font-bold">Company & Contacts</th>
                   <th className="px-4 py-4 font-bold">Package & Emails</th>
                   <th className="px-4 py-4 font-bold">Rate & Terms</th>
+                  
+                  {/* --- NEW: INLINE TOGGLE HEADERS --- */}
+                  <th className="px-3 py-4 font-bold border-l border-slate-200 bg-slate-100/50 relative group min-w-[120px]">
+                    {isUpdatingToggles && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg></div>}
+                    <label className="flex items-center gap-2 cursor-pointer select-none" title="Toggle Auto-Emails for current page">
+                      <input 
+                        type="checkbox" 
+                        checked={currentItems.length > 0 && currentItems.every(c => c.auto_email_enabled == 1 || c.auto_email_enabled === true)}
+                        onChange={(e) => handleBatchToggle('auto_email_enabled', e.target.checked)}
+                        className="rounded border-slate-300 w-3.5 h-3.5 cursor-pointer text-blue-500 focus:ring-blue-500"
+                      />
+                      <span className="text-[10px] text-blue-600 font-black">Auto-Emails</span>
+                    </label>
+                  </th>
+                  <th className="px-3 py-4 font-bold border-r border-slate-200 bg-slate-100/50 relative group min-w-[140px]">
+                    {isUpdatingToggles && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10"></div>}
+                    <label className="flex items-center gap-2 cursor-pointer select-none" title="Toggle Docs Surrendered for current page">
+                      <input 
+                        type="checkbox" 
+                        checked={currentItems.length > 0 && currentItems.every(c => c.documents_submitted == 1 || c.documents_submitted === true)}
+                        onChange={(e) => handleBatchToggle('documents_submitted', e.target.checked)}
+                        className="rounded border-slate-300 w-3.5 h-3.5 cursor-pointer text-slate-500 focus:ring-slate-500"
+                      />
+                      <span className="text-[10px] text-slate-500 font-black">Docs Surrendered</span>
+                    </label>
+                  </th>
+
                   <th className="px-4 py-4 font-bold">Contract & Automation Insights</th>
                   <th className="px-4 py-4 font-bold text-center">Actions</th>
                 </tr>
@@ -1109,7 +1215,7 @@ const handleFileUpload = (e) => {
                     const isAutoEnabled = client.auto_email_enabled == 1 || client.auto_email_enabled === '1' || client.auto_email_enabled === true;
                     const isDocsSubmitted = client.documents_submitted == 1 || client.documents_submitted === '1' || client.documents_submitted === true;
                     
-                    return (
+                  return (
                     <tr key={client.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-4">
                         <p className="font-bold text-slate-800">{client.company_name}</p>
@@ -1124,7 +1230,27 @@ const handleFileUpload = (e) => {
                         <p className="text-[10px] font-black text-[#b8d839] uppercase tracking-wider mt-0.5">{client.payment_terms}</p>
                       </td>
                       
-                      {/* --- THE NEW AUTOMATION INSIGHTS COLUMN --- */}
+                      {/* --- NEW: THESE ARE THE TWO CELLS YOU WERE MISSING! --- */}
+                      <td className="px-4 py-4 border-l border-slate-100 bg-slate-50/30 text-center">
+                        <input 
+                          type="checkbox" 
+                          checked={isAutoEnabled}
+                          onChange={(e) => handleToggleInline(client, 'auto_email_enabled', e.target.checked)}
+                          className="rounded border-slate-300 w-4 h-4 cursor-pointer text-blue-500 focus:ring-blue-500 transition-all shadow-sm mx-auto block"
+                          title="Toggle Auto-Emails"
+                        />
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-100 bg-slate-50/30 text-center">
+                        <input 
+                          type="checkbox" 
+                          checked={isDocsSubmitted}
+                          onChange={(e) => handleToggleInline(client, 'documents_submitted', e.target.checked)}
+                          className="rounded border-slate-300 w-4 h-4 cursor-pointer text-slate-500 focus:ring-slate-500 transition-all shadow-sm mx-auto block"
+                          title="Toggle Docs Surrendered"
+                        />
+                      </td>
+                      {/* ------------------------------------------------------ */}
+
                       <td className="px-4 py-3 align-top min-w-[240px]">
                         <div className="flex flex-col gap-2">
                           
@@ -1144,7 +1270,6 @@ const handleFileUpload = (e) => {
                           {/* Bottom: Automation Trackers */}
                           <div className="grid grid-cols-1 gap-1 border-t border-slate-100 pt-1.5">
                             
-                            {/* Email Tracker */}
                             {!isAutoEnabled ? (
                                <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1.5">🛑 Emails Paused</span>
                             ) : client.contract_status === 'Active' ? (
@@ -1153,7 +1278,6 @@ const handleFileUpload = (e) => {
                                <span className="text-[10px] text-red-600 font-bold flex items-center gap-1.5">📧 Termination: {insights?.termDate || 'N/A'}</span>
                             )}
 
-                            {/* Document Tracker */}
                             {isDocsSubmitted ? (
                                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1.5">✅ Docs Surrendered</span>
                             ) : (
@@ -1616,7 +1740,7 @@ const handleFileUpload = (e) => {
               <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-red-500 font-bold text-2xl transition-colors">&times;</button>
             </div>
 
-            {/* --- COMPACT AUTOMATION ENGINE BAR --- */}
+            {/* --- COMPACT AUTOMATION ENGINE BAR --- 
             <div className="bg-[#1e293b] px-6 py-4 flex flex-col md:flex-row items-center justify-between shrink-0 border-y border-slate-800">
               <div className="mb-4 md:mb-0 flex flex-col items-start w-full md:w-auto">
                 <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 mb-0.5">
@@ -1651,7 +1775,7 @@ const handleFileUpload = (e) => {
                   </div>
                 </label>
               </div>
-            </div>
+            </div>*/}
 
             {/* The Editable Review Grid */}
             <div className="flex-1 p-6 bg-slate-50/50 overflow-hidden flex flex-col">
@@ -1661,8 +1785,35 @@ const handleFileUpload = (e) => {
                 <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
                   <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[1200px]">
                     {/* Excel-Style Draggable Headers */}
-                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm select-none">                      <tr>
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm select-none">
+                      <tr>
                         <ResizableHeader title="Status" defaultWidth={110} />
+                        
+                        {/* --- NEW: Row-level Automation Toggles --- */}
+                        <th className="px-4 py-3 font-bold relative group bg-slate-100 overflow-hidden border-r border-slate-200" style={{ width: '130px', minWidth: '130px' }}>
+                          <label className="flex items-center gap-2 cursor-pointer" title="Toggle Expiry & Termination Emails">
+                            <input 
+                              type="checkbox" 
+                              checked={importStaging.length > 0 && importStaging.every(r => r.auto_email_enabled)}
+                              onChange={(e) => setImportStaging(prev => prev.map(r => ({ ...r, auto_email_enabled: e.target.checked })))}
+                              className="rounded border-slate-300 cursor-pointer"
+                            />
+                            <span className="truncate block select-none">Auto-Emails</span>
+                          </label>
+                        </th>
+                        
+                        <th className="px-4 py-3 font-bold relative group bg-slate-100 overflow-hidden border-r border-slate-200" style={{ width: '140px', minWidth: '140px' }}>
+                          <label className="flex items-center gap-2 cursor-pointer" title="Disables 90-day doc request">
+                            <input 
+                              type="checkbox" 
+                              checked={importStaging.length > 0 && importStaging.every(r => r.documents_submitted)}
+                              onChange={(e) => setImportStaging(prev => prev.map(r => ({ ...r, documents_submitted: e.target.checked })))}
+                              className="rounded border-slate-300 cursor-pointer"
+                            />
+                            <span className="truncate block select-none">Docs Surrendered</span>
+                          </label>
+                        </th>
+                        
                         <ResizableHeader title="Company Name" defaultWidth={220} />
                         <ResizableHeader title="Contact Person 1" defaultWidth={180} />
                         <ResizableHeader title="Email" defaultWidth={220} />
@@ -1671,7 +1822,6 @@ const handleFileUpload = (e) => {
                         <ResizableHeader title="Service Type" defaultWidth={240} />
                         <ResizableHeader title="Rate" defaultWidth={140} />
                         <ResizableHeader title="Terms" defaultWidth={140} />
-                        {/* --- NEW: ADD THESE TWO LINES --- */}
                         <ResizableHeader title="Contract Status" defaultWidth={140} />
                         <ResizableHeader title="Remarks" defaultWidth={250} />
                       </tr>
@@ -1687,6 +1837,29 @@ const handleFileUpload = (e) => {
                             ) : (
                               <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md"><span className="text-sm">✅</span> Ready</span>
                             )}
+                          </td>
+
+                          {/* --- NEW: Row-level Toggles --- */}
+                          <td className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-start ml-2">
+                              <input 
+                                type="checkbox" 
+                                checked={row.auto_email_enabled} 
+                                onChange={(e) => handleStagingEdit(row.id, 'auto_email_enabled', e.target.checked)}
+                                className="w-4 h-4 cursor-pointer rounded border-slate-300 text-[#b8d839] focus:ring-[#d2f34c] transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-start ml-2">
+                              <input 
+                                type="checkbox" 
+                                checked={row.documents_submitted} 
+                                onChange={(e) => handleStagingEdit(row.id, 'documents_submitted', e.target.checked)}
+                                className="w-4 h-4 cursor-pointer rounded border-slate-300 text-blue-500 focus:ring-blue-500 transition-all"
+                              />
+                            </div>
                           </td>
 
                           {/* Editable Company Name */}

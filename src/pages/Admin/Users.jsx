@@ -138,6 +138,10 @@ export default function Users() {
                     <th className="px-6 py-3 font-semibold uppercase tracking-wider text-xs">Email / Login</th>
                     <th className="px-6 py-3 font-semibold uppercase tracking-wider text-xs">System Role</th>
                     <th className="px-6 py-3 font-semibold uppercase tracking-wider text-xs">Date Created</th>
+                    
+                    {/* --- NEW: LAST LOGIN HEADER --- */}
+                    <th className="px-6 py-3 font-semibold uppercase tracking-wider text-xs">Last Login</th>
+                    
                     <th className="px-6 py-3 font-semibold text-right uppercase tracking-wider text-xs">Actions</th>
                   </tr>
                 </thead>
@@ -156,6 +160,24 @@ export default function Users() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-500">{new Date(u.created_at).toLocaleDateString()}</td>
+                      
+                      {/* --- NEW: LAST LOGIN DATA CELL --- */}
+                      <td className="px-6 py-4 text-slate-500 text-sm">
+                        {u.last_login ? (
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-slate-700">
+                              {new Date(u.last_login).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                            <span className="text-xs">
+                              {new Date(u.last_login).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Never logged in</span>
+                        )}
+                      </td>
+                      {/* -------------------------------- */}
+
                       <td className="px-6 py-4 text-right">
                         <button onClick={() => handleEditClick(u)} className="text-blue-600 hover:underline text-xs font-bold mr-3">Edit</button>
                         {u.role !== 'admin' && <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:underline text-xs font-bold">Delete</button>}
