@@ -13,6 +13,7 @@ export default function Sidebar() {
   const userRole = localStorage.getItem('userRole') || 'staff';
   
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false); // <--- NEW STATE
   const [profileName, setProfileName] = useState(userName);
   const [profilePassword, setProfilePassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -222,8 +223,7 @@ export default function Sidebar() {
               </div>
             )}
 
-            <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Sign Out">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            <button onClick={() => setShowLogoutModal(true)} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Sign Out">              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             </button>
 
           </div>
@@ -257,6 +257,34 @@ export default function Sidebar() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* LOGOUT CONFIRMATION MODAL */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in text-left">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 mb-4 text-red-500 shadow-inner border border-red-100">
+              <svg className="w-8 h-8 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Sign Out?</h3>
+            <p className="text-slate-500 mb-6 text-sm font-medium">
+              Are you sure you want to end your current session? You will need to log in again to access the dashboard.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setShowLogoutModal(false)} 
+                className="flex-1 rounded-xl px-4 py-3 font-bold text-slate-600 hover:bg-slate-100 transition-colors bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleLogout} 
+                className="flex-1 rounded-xl px-4 py-3 font-bold text-white bg-red-600 hover:bg-red-700 shadow-md shadow-red-600/20 transition-all hover:-translate-y-0.5"
+              >
+                Yes, Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}
