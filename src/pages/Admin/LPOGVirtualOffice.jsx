@@ -531,16 +531,67 @@ export default function LPOGVirtualOffice() {
 
     if (!rawRows || rawRows.length < 2) return; // Ensure there's data to process
 
-    // 1. Helper to find column index from keywords
-    const headers = rawRows[0].map(h => h ? String(h).toLowerCase().replace(/[^a-z0-9]/g, '') : '');
-    const findCol = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+// 1. UPGRADED: Expanded Keywords for Dynamic Column Detection
+const headers = rawRows[0].map(h => h ? String(h).toLowerCase().replace(/[^a-z0-9]/g, '') : '');
+const findCol = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
 
-    // 2. Helper to safely parse dates from CSV
-    const parseCsvDate = (dateStr) => {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
-    };
+// 2. UPGRADED: Smart Date Parser
+const parseCsvDate = (dateStr) => {
+    if (!dateStr) return '';
+    let rawStr = String(dateStr).trim();
+
+    // Fix A: Excel Serial Numbers (e.g. 45305 instead of a real date)
+    if (/^\d{5}$/.test(rawStr)) {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const parsedDate = new Date(excelEpoch.getTime() + parseInt(rawStr) * 86400000);
+        return parsedDate.toISOString().split('T')[0];
+    }
+
+    // Fix B: Handles formats like "12-Jan-24" or "12-Jan-2024"
+    const dmmmyyMatch = rawStr.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})$/);
+    if (dmmmyyMatch) {
+        const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+        let day = parseInt(dmmmyyMatch[1]);
+        let month = months[dmmmyyMatch[2].toLowerCase()];
+        let year = parseInt(dmmmyyMatch[3]);
+        
+        // Convert 2-digit year (24) to 4-digit year (2024)
+        if (year < 100) year += (year < 50 ? 2000 : 1900);
+        
+        if (month !== undefined) {
+            // Format to strictly YYYY-MM-DD
+            return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
+    }
+
+    // Fix C: Standard JS Fallback (Handles MM/DD/YYYY and YYYY-MM-DD)
+    const d = new Date(rawStr);
+    if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    return ''; // Invalid date
+};
+
+// 3. UPGRADED: Expanded Column Mapping
+// We add more aliases so it finds the column no matter what the user names it
+const colMap = {
+    company: findCol(['company', 'business', 'client']),
+    contact1: findCol(['contactperson1', 'person1', 'contact1', 'primarycontact']),
+    contact2: findCol(['contactperson2', 'person2', 'contact2', 'secondarycontact']),
+    email1: findCol(['email1', 'primaryemail', 'emailaddress1', 'email']), 
+    email2: findCol(['email2', 'secondaryemail', 'emailaddress2']),
+    start: findCol(['start', 'begin', 'commence']),
+    end: findCol(['end', 'expiry', 'terminat']),
+    pkg: findCol(['package', 'tier', 'service', 'type', 'plan']),
+    rate: findCol(['rate', 'agreed', 'price', 'fee', 'amount']),
+    terms: findCol(['term', 'payment']), 
+    status: findCol(['status', 'state']), 
+    remarks: findCol(['remark', 'note'])
+};
 
     // --- NEW: 3. Smart Payment Terms Parser ---
     // Scans the messy Excel text for keywords and forces it into our strict system options
