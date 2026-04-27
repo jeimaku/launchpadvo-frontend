@@ -822,18 +822,28 @@ const handleFileUpload = (e) => {
     const { actionType, clientId } = confirmModal;
     setConfirmModal({ show: false, actionType: '', clientId: null });
 
-    if (actionType === 'DELETE') {
-      try {
-        const token = localStorage.getItem('token');
-        // FIXED: Removed hardcoded IP
-        await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${clientId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        fetchClients();
-      } catch (error) { console.error('Error deleting:', error); }
-      return;
+if (actionType === 'DELETE') {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`http://${window.location.hostname}:5000/api/virtual-offices/${clientId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    // ADD THIS BLOCK: Catch backend SQL errors
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.message || 'Failed to delete client from database.');
     }
+
+    fetchClients();
+  } catch (error) { 
+    console.error('Error deleting:', error); 
+    // Show the error to the user instead of failing silently
+    setActionAlert({ show: true, message: error.message, isError: true });
+  }
+  return;
+}
 
     const finalPackageTier = formData.package_tier === 'Custom' 
       ? `Custom: ${formData.custom_package_name}` 
@@ -939,7 +949,7 @@ const handleFileUpload = (e) => {
     const payload = { 
       ...client, 
       package_tier: finalPackageTier,
-      branch: 'LPC', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
+      branch: 'LPOG', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
       auto_email_enabled: field === 'auto_email_enabled' ? (newValue ? 1 : 0) : (client.auto_email_enabled ? 1 : 0),
       documents_submitted: field === 'documents_submitted' ? (newValue ? 1 : 0) : (client.documents_submitted ? 1 : 0)
     };
@@ -981,7 +991,7 @@ const handleFileUpload = (e) => {
         const payload = { 
           ...client, 
           package_tier: finalPackageTier,
-          branch: 'LPC', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
+          branch: 'LPOG', // ⚠️ IMPORTANT: Change 'LPC' to 'LPOG' when you paste this into LPOGVirtualOffice.jsx!
           auto_email_enabled: field === 'auto_email_enabled' ? (newValue ? 1 : 0) : (client.auto_email_enabled ? 1 : 0),
           documents_submitted: field === 'documents_submitted' ? (newValue ? 1 : 0) : (client.documents_submitted ? 1 : 0)
         };
@@ -1623,8 +1633,8 @@ const handleFileUpload = (e) => {
         </div>
       )}
 
-      {confirmModal.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        {confirmModal.show && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 mb-4">
               <span className="text-2xl">⚠️</span>
@@ -1649,8 +1659,8 @@ const handleFileUpload = (e) => {
       )}
 
       {/* --- DOCUMENT REQUEST CONFIRMATION MODAL --- */}
-      {docRequestModal.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        {docRequestModal.show && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl text-center animate-fade-in">
             <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 mb-6 shadow-inner border border-blue-100">
               <span className="text-4xl">📄</span>
