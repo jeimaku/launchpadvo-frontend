@@ -525,76 +525,56 @@ export default function LPOGVirtualOffice() {
     return result;
   };
 
-// --- PHASE 1: Process CSV and Staging Data ---
+  // --- PHASE 1: Process CSV and Staging Data ---
   const processImportData = (rawRows) => {
     setImportStep(3); // Go to staging/review
 
     if (!rawRows || rawRows.length < 2) return; // Ensure there's data to process
 
-// 1. UPGRADED: Expanded Keywords for Dynamic Column Detection
-const headers = rawRows[0].map(h => h ? String(h).toLowerCase().replace(/[^a-z0-9]/g, '') : '');
-const findCol = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+    // 1. UPGRADED: Expanded Keywords for Dynamic Column Detection
+    const headers = rawRows[0].map(h => h ? String(h).toLowerCase().replace(/[^a-z0-9]/g, '') : '');
+    const findCol = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
 
-// 2. UPGRADED: Smart Date Parser
-const parseCsvDate = (dateStr) => {
-    if (!dateStr) return '';
-    let rawStr = String(dateStr).trim();
+    // 2. UPGRADED: Smart Date Parser
+    const parseCsvDate = (dateStr) => {
+        if (!dateStr) return '';
+        let rawStr = String(dateStr).trim();
 
-    // Fix A: Excel Serial Numbers (e.g. 45305 instead of a real date)
-    if (/^\d{5}$/.test(rawStr)) {
-        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-        const parsedDate = new Date(excelEpoch.getTime() + parseInt(rawStr) * 86400000);
-        return parsedDate.toISOString().split('T')[0];
-    }
-
-    // Fix B: Handles formats like "12-Jan-24" or "12-Jan-2024"
-    const dmmmyyMatch = rawStr.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})$/);
-    if (dmmmyyMatch) {
-        const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
-        let day = parseInt(dmmmyyMatch[1]);
-        let month = months[dmmmyyMatch[2].toLowerCase()];
-        let year = parseInt(dmmmyyMatch[3]);
-        
-        // Convert 2-digit year (24) to 4-digit year (2024)
-        if (year < 100) year += (year < 50 ? 2000 : 1900);
-        
-        if (month !== undefined) {
-            // Format to strictly YYYY-MM-DD
-            return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        // Fix A: Excel Serial Numbers (e.g. 45305)
+        if (/^\d{5}$/.test(rawStr)) {
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const parsedDate = new Date(excelEpoch.getTime() + parseInt(rawStr) * 86400000);
+            return parsedDate.toISOString().split('T')[0];
         }
-    }
 
-    // Fix C: Standard JS Fallback (Handles MM/DD/YYYY and YYYY-MM-DD)
-    const d = new Date(rawStr);
-    if (!isNaN(d.getTime())) {
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
+        // Fix B: Handles formats like "12-Jan-24" or "12-Jan-2024"
+        const dmmmyyMatch = rawStr.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})$/);
+        if (dmmmyyMatch) {
+            const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+            let day = parseInt(dmmmyyMatch[1]);
+            let month = months[dmmmyyMatch[2].toLowerCase()];
+            let year = parseInt(dmmmyyMatch[3]);
+            
+            if (year < 100) year += (year < 50 ? 2000 : 1900);
+            
+            if (month !== undefined) {
+                return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+        }
 
-    return ''; // Invalid date
-};
+        // Fix C: Standard JS Fallback
+        const d = new Date(rawStr);
+        if (!isNaN(d.getTime())) {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
 
-// 3. UPGRADED: Expanded Column Mapping
-// We add more aliases so it finds the column no matter what the user names it
-const colMap = {
-    company: findCol(['company', 'business', 'client']),
-    contact1: findCol(['contactperson1', 'person1', 'contact1', 'primarycontact']),
-    contact2: findCol(['contactperson2', 'person2', 'contact2', 'secondarycontact']),
-    email1: findCol(['email1', 'primaryemail', 'emailaddress1', 'email']), 
-    email2: findCol(['email2', 'secondaryemail', 'emailaddress2']),
-    start: findCol(['start', 'begin', 'commence']),
-    end: findCol(['end', 'expiry', 'terminat']),
-    pkg: findCol(['package', 'tier', 'service', 'type', 'plan']),
-    rate: findCol(['rate', 'agreed', 'price', 'fee', 'amount']),
-    terms: findCol(['term', 'payment']), 
-    status: findCol(['status', 'state']), 
-    remarks: findCol(['remark', 'note'])
-};
+        return ''; // Invalid date
+    };
 
     // --- NEW: 3. Smart Payment Terms Parser ---
-    // Scans the messy Excel text for keywords and forces it into our strict system options
     const parsePaymentTerms = (rawTerm) => {
         if (!rawTerm) return '';
         const t = String(rawTerm).toLowerCase();
@@ -602,23 +582,22 @@ const colMap = {
         if (t.includes('month')) return 'Monthly';
         if (t.includes('quarter')) return 'Quarterly';
         if (t.includes('semi')) return 'Semi-Annual';
-        // If it says "Full", "Fully Paid", or "Annual", it defaults to Annually
         if (t.includes('full') || t.includes('annual') || t.includes('year')) return 'Annually';
         
-        return rawTerm.trim(); // Fallback if it completely doesn't recognize the word
+        return rawTerm.trim(); 
     };
 
-    // Dictionary: Maps keywords to their column index
+    // 3. UPGRADED: Expanded Column Mapping
     const colMap = {
-        company: findCol(['company', 'business']),
+        company: findCol(['company', 'business', 'client']),
         contact1: findCol(['contactperson1', 'person1', 'contact1', 'primarycontact']),
         contact2: findCol(['contactperson2', 'person2', 'contact2', 'secondarycontact']),
         email1: findCol(['email1', 'primaryemail', 'emailaddress1', 'email']), 
         email2: findCol(['email2', 'secondaryemail', 'emailaddress2']),
-        start: findCol(['start']),
-        end: findCol(['end', 'expiry']),
-        pkg: findCol(['package', 'tier', 'service']),
-        rate: findCol(['rate', 'agreed', 'price']),
+        start: findCol(['start', 'begin', 'commence']),
+        end: findCol(['end', 'expiry', 'terminat']),
+        pkg: findCol(['package', 'tier', 'service', 'type', 'plan']),
+        rate: findCol(['rate', 'agreed', 'price', 'fee', 'amount']),
         terms: findCol(['term', 'payment']), 
         status: findCol(['status', 'state']), 
         remarks: findCol(['remark', 'note'])
@@ -628,9 +607,8 @@ const colMap = {
     let validCount = 0;
     let invalidCount = 0;
 
-    // Skip the header row (index 0) and process the actual data
+    // Process the actual data
     const rowData = rawRows.slice(1).map(row => {
-        // Skip completely empty rows
         if (!row.some(cell => cell && String(cell).trim() !== '')) return null;
 
         const rawPackage = row[colMap.pkg] ? String(row[colMap.pkg]).trim() : '';
@@ -663,14 +641,11 @@ const colMap = {
           package_tier: isCustomInCsv ? 'Custom' : rawPackage,
           custom_package_name: isCustomInCsv ? rawPackage.substring(7).trim() : '', 
           rate_per_month: row[colMap.rate] ? parseFloat(String(row[colMap.rate]).replace(/[^0-9.]/g, '')) || '' : '',
-          
-          // --- UPDATED: Pass the raw CSV cell through the Smart Parser ---
           payment_terms: row[colMap.terms] ? parsePaymentTerms(row[colMap.terms]) : '',
-          
           contract_status: row[colMap.status] ? String(row[colMap.status]).trim() : 'Active',
           remarks: row[colMap.remarks] ? String(row[colMap.remarks]).trim() : '',
-          auto_email_enabled: true,    // <-- ADD THIS
-          documents_submitted: false   // <-- ADD THIS
+          auto_email_enabled: true,    
+          documents_submitted: false   
         };
 
         // Inline validation
@@ -678,13 +653,12 @@ const colMap = {
         
         if (!stagingRow.hasErrors) validCount++; else invalidCount++;
         return stagingRow;
-    }).filter(row => row !== null); // Remove the skipped empty rows
+    }).filter(row => row !== null);
 
     // Save directly to state
     setImportStaging(rowData);
     setImportSummary({ total: rowData.length, valid: validCount, invalid: invalidCount });
   };
-
 const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1854,9 +1828,9 @@ if (actionType === 'DELETE') {
                         <ResizableHeader title="Company Name" defaultWidth={220} />
                         <ResizableHeader title="Contact Person 1" defaultWidth={180} />
                         <ResizableHeader title="Email" defaultWidth={220} />
+                        <ResizableHeader title="Service Type" defaultWidth={130} />
                         <ResizableHeader title="Start Date" defaultWidth={130} />
-                        <ResizableHeader title="End Date" defaultWidth={130} />
-                        <ResizableHeader title="Service Type" defaultWidth={240} />
+                        <ResizableHeader title="End Date" defaultWidth={240} />
                         <ResizableHeader title="Rate" defaultWidth={140} />
                         <ResizableHeader title="Terms" defaultWidth={140} />
                         <ResizableHeader title="Contract Status" defaultWidth={140} />
