@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { io } from 'socket.io-client'; // <-- IMPORT SOCKET.IO CLIENT
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'; // <-- ADDED Navigate
+import { io } from 'socket.io-client'; 
 import Login from './pages/Login';
 
 // CRM Pages
@@ -14,22 +14,38 @@ import EmailCenter from './pages/Admin/EmailCenter';
 import EmailTrash from './pages/Admin/EmailTrash'; 
 import EmailTemplates from './pages/Admin/EmailTemplates'; 
 
+// ==========================================
+// 🛡️ THE ROUTE BOUNCER (RBAC SECURITY)
+// ==========================================
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const token = localStorage.getItem('token');
+  const userRole = localStorage.getItem('userRole');
+
+  // 1. Not Logged In? Kick them back to the login screen immediately.
+  if (!token) {
+    return <Navigate to="/" replace />;
+  }
+
+  // 2. Logged In, but wrong role? (e.g., Staff trying to access Admin Users page)
+  if (allowedRoles && !allowedRoles.includes(userRole)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // 3. Passed all checks? Let them in!
+  return children;
+};
+
 function App() {
 
-  // --- NEW: Global Socket Listener for Notifications ---
+  // --- Global Socket Listener for Notifications ---
   useEffect(() => {
-    // FIXED: Use the dynamic Mirror URL and point to Port 5000!
     const SOCKET_URL = `http://${window.location.hostname}:5000`;
     const socket = io(SOCKET_URL);
 
-    // Listen for the event emitted by imapListener.js
     socket.on('incoming_email', () => {
-      // Check local storage to see if the current user is an admin, manager, or staff
       const userRole = localStorage.getItem('userRole');
       
-      // Update: Array includes check for multiple roles
       if (['admin', 'manager', 'staff'].includes(userRole)) {
-        // Play the notification sound from the public folder
         const notificationSound = new Audio('/notification.mp3');
         notificationSound.play().catch(err => {
           console.error("Audio playback blocked by browser:", err);
@@ -37,30 +53,70 @@ function App() {
       }
     });
 
-    // Cleanup the connection when the app unmounts
     return () => {
       socket.disconnect();
     };
   }, []);
   // ---------------------------------------------------
 
+  // Define the standard internal roles
+  const internalRoles = ['admin', 'manager', 'supervisor', 'staff'];
+
   return (
     <Router>
       <Routes>
+        {/* PUBLIC ROUTE */}
         <Route path="/" element={<Login />} />
         
-        <Route path="/dashboard" element={<Dashboard />} />
+        {/* PROTECTED ROUTES (All Internal Staff) */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
         
-        {/* Placeholder routes until we build the actual pages */}
-        <Route path="/lpc-virtual-office" element={<LPCVirtualOffice />} />
-        <Route path="/lpog-virtual-office" element={<LPOGVirtualOffice />} />
-        <Route path="/payments" element={<Payments />} />
-        <Route path="/users" element={<Users />} />
+        <Route path="/lpc-virtual-office" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <LPCVirtualOffice />
+          </ProtectedRoute>
+        } />
         
-        {/* REVISED EMAIL ROUTES */}
-        <Route path="/email-center" element={<EmailCenter />} /> 
-        <Route path="/email-trash" element={<EmailTrash />} /> 
-        <Route path="/email-templates" element={<EmailTemplates />} /> 
+        <Route path="/lpog-virtual-office" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <LPOGVirtualOffice />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/payments" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <Payments />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/email-center" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <EmailCenter />
+          </ProtectedRoute>
+        } /> 
+        
+        <Route path="/email-trash" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <EmailTrash />
+          </ProtectedRoute>
+        } /> 
+        
+        <Route path="/email-templates" element={
+          <ProtectedRoute allowedRoles={internalRoles}>
+            <EmailTemplates />
+          </ProtectedRoute>
+        } /> 
+
+        {/* STRICTLY ADMIN ONLY ROUTE */}
+        <Route path="/users" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <Users />
+          </ProtectedRoute>
+        } />
         
       </Routes>
     </Router>

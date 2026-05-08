@@ -600,7 +600,8 @@ export default function EmailTemplates() {
             {currentView === 'form' && (
               <div className="flex-1 overflow-hidden flex flex-col lg:flex-row w-full bg-slate-50">
 
-              {/* ================= LEFT COLUMN: EDITOR FORM ================= */}
+{/* ================= LEFT COLUMN: EDITOR FORM ================= */}
+                {/* Fixed Layout: Shrunk width to 45% on XL to give the preview more room */}
                 <div className="w-full lg:w-[50%] xl:w-[45%] flex flex-col h-full border-r border-slate-200 relative z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0">
                   
                   {/* Sticky Header & Back Button */}
@@ -760,7 +761,7 @@ export default function EmailTemplates() {
                   </div>
                 </div>
 
-                s{/* ================= RIGHT COLUMN: LIVE PREVIEW ================= */}
+                {/* ================= RIGHT COLUMN: LIVE PREVIEW ================= */}
                 <div className="hidden lg:flex flex-1 bg-slate-200/60 p-4 lg:p-6 xl:p-8 overflow-y-auto custom-scrollbar flex-col relative border-l border-slate-300/60">
                    
                    <div className="sticky top-0 z-10 flex flex-col gap-3 mb-6">
@@ -770,7 +771,7 @@ export default function EmailTemplates() {
                         Live Client Preview
                       </h4>
                       
-                      {/* Display the mock client being used */}
+                      {/* DYNAMIC DATA SOURCE BADGE */}
                       {previewClient && (
                         <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-300/50 shadow-sm text-[10px] font-bold text-slate-500 flex items-center gap-2">
                           Data Source: <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{previewClient.company_name}</span>
@@ -778,7 +779,7 @@ export default function EmailTemplates() {
                       )}
                     </div>
 
-                    {/* --- NEW: Sample Data Notice --- */}
+                    {/* NEW: Sample Data Notice Box */}
                     <div className="bg-blue-50/90 backdrop-blur-sm border border-blue-200 p-3 rounded-xl flex items-start gap-2.5 shadow-sm">
                        <span className="text-blue-500 text-base leading-none mt-0.5">ℹ️</span>
                        <p className="text-xs font-medium text-blue-800 leading-relaxed">
@@ -787,64 +788,70 @@ export default function EmailTemplates() {
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col w-full max-w-[600px] mx-auto transition-all">
-                     
-                      {/* Fake Gmail Header */}
-                     <div className="border-b border-slate-100 p-6 bg-white flex items-start gap-4">
-                        <div className="h-12 w-12 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden p-2 shadow-inner">
-                          <img src={launchpadLogo} alt="Logo" className="w-full h-full object-contain opacity-80" />
-                        </div>
-                        <div className="flex-1 pt-0.5 min-w-0">
-                           {/* UPGRADED: Dynamic Subject Line */}
-                           <h2 className="text-xl font-bold text-slate-900 leading-tight truncate" title={formData.subject}>
-                             {renderDynamicSubject(formData.subject)}
-                           </h2>
-                           <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                             <span className="font-bold text-slate-700">Launchpad Virtual Office</span>
-                             <span className="text-xs hidden xl:inline-block truncate">&lt;admin@launchpadcoworkingph.com&gt;</span>
-                           </p>
-                        </div>
-                     </div>
-
-                    {/* --- THE ACTUAL EMAIL BODY PREVIEW --- */}
-                     <div className="text-base text-slate-800 bg-white p-4 sm:p-6 min-h-[300px] flex justify-center border-b border-slate-100 overflow-x-auto">
-                        {formData.isHtml ? (
-                          <div className="prose max-w-none text-slate-700 w-full flex flex-col items-center" dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(formData.body) }} />
-                        ) : (
-                          <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }} className="text-slate-700 leading-relaxed w-full">
-                            {formData.body}
+                  {/* HORIZONTAL SCROLL WRAPPER TO PREVENT PAGE STRETCHING */}
+                  <div className="w-full overflow-x-auto custom-scrollbar pb-6 flex-1">
+                    
+                    {/* ENLARGED CARD CONTAINER (min-w-700px forces horizontal scroll on small screens) */}
+                    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col w-full min-w-[700px] max-w-[850px] mx-auto transition-all">
+                       
+                        {/* Fake Gmail Header */}
+                       <div className="border-b border-slate-100 p-6 bg-white flex items-start gap-4">
+                          <div className="h-12 w-12 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden p-2 shadow-inner">
+                            <img src={launchpadLogo} alt="Logo" className="w-full h-full object-contain opacity-80" />
                           </div>
-                        )}
-                     </div>
-                     {/* -------------------------------------------------- */}
-
-                     {/* Fake Gmail Attachments */}
-                     {(formData.existingAttachments.length > 0 || formData.newFiles.length > 0) && (
-                       <div className="bg-slate-50 border-t border-slate-100 p-6">
-                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                            Attachments ({(formData.existingAttachments.length + formData.newFiles.length)})
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {formData.existingAttachments.map((f, i) => (
-                               <span key={`old-prev-${i}`} className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-600 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">
-                                 {f.name}
-                               </span>
-                            ))}
-                            {formData.newFiles.map((f, i) => (
-                               <span key={`new-prev-${i}`} className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">
-                                 {f.name}
-                               </span>
-                            ))}
+                          <div className="flex-1 pt-0.5 min-w-0">
+                             <h2 className="text-xl font-bold text-slate-900 leading-tight truncate" title={formData.subject}>
+                               {renderDynamicSubject(formData.subject)}
+                             </h2>
+                             <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
+                               <span className="font-bold text-slate-700">Launchpad Virtual Office</span>
+                               <span className="text-xs hidden xl:inline-block truncate">&lt;admin@launchpadcoworkingph.com&gt;</span>
+                             </p>
                           </div>
                        </div>
-                     )}
 
+                       {/* --- THE ENLARGED EMAIL BODY PREVIEW --- */}
+                       <div className="text-base text-slate-800 bg-white p-6 sm:p-8 min-h-[400px] flex justify-center border-b border-slate-100">
+                          {formData.isHtml ? (
+                            <div className="prose max-w-none text-slate-700 w-full flex flex-col items-center transform scale-[1.05] origin-top pb-10" dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(formData.body) }} />
+                          ) : (
+                            <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }} className="text-slate-700 leading-relaxed w-full">
+                              {formData.body}
+                            </div>
+                          )}
+                       </div>
+
+                       {/* Fake Gmail Attachments */}
+                       {(formData.existingAttachments.length > 0 || formData.newFiles.length > 0) && (
+                         <div className="bg-slate-50 border-t border-slate-100 p-6">
+                            <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                              Attachments ({(formData.existingAttachments.length + formData.newFiles.length)})
+                            </h4>
+                            <div className="flex flex-wrap gap-2">
+                              {formData.existingAttachments.map((f, i) => (
+                                 <span key={`old-prev-${i}`} className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-600 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">
+                                   {f.name}
+                                 </span>
+                              ))}
+                              {formData.newFiles.map((f, i) => (
+                                 <span key={`new-prev-${i}`} className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">
+                                   {f.name}
+                                 </span>
+                              ))}
+                            </div>
+                         </div>
+                       )}
+
+                    </div>
                   </div>
                 </div>
 
               </div>
             )}
+
+            {/* ========================================== */}
+            {/* VIEW: AUTOMATION RULES ENGINE              */}
 
             {/* ========================================== */}
             {/* VIEW: AUTOMATION RULES ENGINE              */}
