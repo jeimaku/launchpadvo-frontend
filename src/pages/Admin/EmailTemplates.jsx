@@ -600,8 +600,8 @@ export default function EmailTemplates() {
             {currentView === 'form' && (
               <div className="flex-1 overflow-hidden flex flex-col lg:flex-row w-full bg-slate-50">
 
-                {/* ================= LEFT COLUMN: EDITOR FORM ================= */}
-                <div className="w-full lg:w-[55%] xl:w-[50%] flex flex-col h-full border-r border-slate-200 relative z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
+              {/* ================= LEFT COLUMN: EDITOR FORM ================= */}
+                <div className="w-full lg:w-[50%] xl:w-[45%] flex flex-col h-full border-r border-slate-200 relative z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0">
                   
                   {/* Sticky Header & Back Button */}
                   <div className="px-6 py-4 sm:px-8 sm:py-5 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
@@ -760,24 +760,34 @@ export default function EmailTemplates() {
                   </div>
                 </div>
 
-                {/* ================= RIGHT COLUMN: LIVE PREVIEW ================= */}
-                <div className="hidden lg:flex lg:w-[45%] xl:w-[50%] bg-slate-200/60 p-8 xl:p-12 overflow-y-auto custom-scrollbar flex-col relative border-l border-slate-300/60">
+                s{/* ================= RIGHT COLUMN: LIVE PREVIEW ================= */}
+                <div className="hidden lg:flex flex-1 bg-slate-200/60 p-4 lg:p-6 xl:p-8 overflow-y-auto custom-scrollbar flex-col relative border-l border-slate-300/60">
                    
-                   <div className="sticky top-0 z-10 flex items-center justify-between mb-6">
-                    <h4 className="font-black text-slate-500 uppercase tracking-widest text-[11px] flex items-center gap-2 bg-slate-200/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-slate-300/50">
-                      <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
-                      Live Client Preview
-                    </h4>
-                    
-                    {/* NEW: Display the mock client being used */}
-                    {previewClient && (
-                      <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-300/50 shadow-sm text-[10px] font-bold text-slate-500 flex items-center gap-2">
-                        Data Source: <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{previewClient.company_name}</span>
-                      </div>
-                    )}
+                   <div className="sticky top-0 z-10 flex flex-col gap-3 mb-6">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-black text-slate-500 uppercase tracking-widest text-[11px] flex items-center gap-2 bg-slate-200/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-slate-300/50">
+                        <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        Live Client Preview
+                      </h4>
+                      
+                      {/* Display the mock client being used */}
+                      {previewClient && (
+                        <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-300/50 shadow-sm text-[10px] font-bold text-slate-500 flex items-center gap-2">
+                          Data Source: <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{previewClient.company_name}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* --- NEW: Sample Data Notice --- */}
+                    <div className="bg-blue-50/90 backdrop-blur-sm border border-blue-200 p-3 rounded-xl flex items-start gap-2.5 shadow-sm">
+                       <span className="text-blue-500 text-base leading-none mt-0.5">ℹ️</span>
+                       <p className="text-xs font-medium text-blue-800 leading-relaxed">
+                         <strong>Note:</strong> The system is using sample data from an active client to display exactly how this email will look when sent to your virtual office clients.
+                       </p>
+                    </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col w-full max-w-3xl mx-auto transition-all">
+                  <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col w-full max-w-[600px] mx-auto transition-all">
                      
                       {/* Fake Gmail Header */}
                      <div className="border-b border-slate-100 p-6 bg-white flex items-start gap-4">
@@ -796,8 +806,8 @@ export default function EmailTemplates() {
                         </div>
                      </div>
 
-                     {/* --- MISSING BLOCK: THE ACTUAL EMAIL BODY PREVIEW --- */}
-                     <div className="text-base text-slate-800 bg-white p-8 min-h-[300px] flex justify-center border-b border-slate-100">
+                    {/* --- THE ACTUAL EMAIL BODY PREVIEW --- */}
+                     <div className="text-base text-slate-800 bg-white p-4 sm:p-6 min-h-[300px] flex justify-center border-b border-slate-100 overflow-x-auto">
                         {formData.isHtml ? (
                           <div className="prose max-w-none text-slate-700 w-full flex flex-col items-center" dangerouslySetInnerHTML={{ __html: renderSafePreviewBody(formData.body) }} />
                         ) : (

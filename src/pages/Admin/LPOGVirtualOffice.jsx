@@ -189,41 +189,68 @@ export default function LPOGVirtualOffice() {
     });
   };
 
-  // --- SMART DATE CALCULATOR ---
+  // --- SMART DATE CALCULATOR (UPGRADED) ---
   const getNextAutomatedEmail = () => {
-    const { end_date, contract_status, auto_email_enabled, documents_submitted } = formData;
-    if (!auto_email_enabled) return { text: "System Paused", color: "text-slate-400" };
-    if (!end_date) return { text: "Waiting for End Date...", color: "text-slate-400" };
+    const { date_started, end_date, contract_status, auto_email_enabled, documents_submitted } = formData;
     
-    const end = new Date(end_date);
+    // 1. Master Switch Check
+    if (!auto_email_enabled) return { text: "System Paused", color: "text-slate-400" };
+    
     const today = new Date();
     today.setHours(0,0,0,0);
 
+    // 2. Doc Request Check (90 days from START date)
+    if (!documents_submitted && date_started) {
+        const start = new Date(date_started);
+        const docNotice = new Date(start);
+        docNotice.setDate(docNotice.getDate() + 90); 
+        
+        // If the 90-day mark is today or in the future, show it!
+        if (today <= docNotice) return { 
+            text: `Doc Request on ${docNotice.toLocaleDateString()}`, 
+            color: "text-amber-600" 
+        };
+    }
+
+    // 3. Expiry & Renewal Checks (Based on END date)
+    if (!end_date) return { text: "Waiting for End Date...", color: "text-slate-400" };
+    const end = new Date(end_date);
+
     if (contract_status === 'Active') {
         const firstNotice = new Date(end);
-        firstNotice.setDate(firstNotice.getDate() - 30); // 30 days before
+        firstNotice.setDate(firstNotice.getDate() - 30); 
+        
         if (today < firstNotice) return { 
             text: `Renewal Notice on ${firstNotice.toLocaleDateString()}`, 
             color: "text-emerald-600" 
         };
-        return { text: "Renewal Active (Weekly)", color: "text-amber-500" };
+        
+        // Calculate the exact next weekly ping if within the 30-day window
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const daysLeft = Math.floor((end - today) / msPerDay);
+        
+        if (daysLeft > 0 && daysLeft <= 30) {
+            const remainder = daysLeft % 7;
+            const daysUntilNextPing = remainder === 0 ? 0 : remainder;
+            const nextPingDate = new Date(today);
+            nextPingDate.setDate(today.getDate() + daysUntilNextPing);
+            
+            return { 
+                text: `Next Renewal Ping on ${nextPingDate.toLocaleDateString()}`, 
+                color: "text-amber-500" 
+            };
+        }
     } 
+    
     if (contract_status === 'Expired' || contract_status === 'Pending Renewal') {
         const termNotice = new Date(end);
-        termNotice.setDate(termNotice.getDate() + 30); // 30 days after
+        termNotice.setDate(termNotice.getDate() + 30); 
         if (today <= termNotice) return { 
             text: `Termination Notice on ${termNotice.toLocaleDateString()}`, 
             color: "text-red-500" 
         };
-        if (!documents_submitted) {
-            const docNotice = new Date(end);
-            docNotice.setDate(docNotice.getDate() + 90); // 90 days after
-            if (today <= docNotice) return { 
-                text: `Doc Request on ${docNotice.toLocaleDateString()}`, 
-                color: "text-amber-600" 
-            };
-        }
     }
+    
     return { text: "No pending emails", color: "text-slate-400" };
   };
 
